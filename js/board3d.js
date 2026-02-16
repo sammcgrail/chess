@@ -269,7 +269,7 @@ var Board3D = {
                 var chKey = isW ? piece.type.toUpperCase() : piece.type;
                 var tex = this._pieceTexture(this.PIECE_CHARS[chKey], isW);
                 var sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-                sprite.position.set(c - 3.5, 0.55, r - 3.5);
+                sprite.position.set(c - 3.5, 0.38, r - 3.5);
                 sprite.scale.set(0.88, 0.88, 0.88);
                 this.pieceMeshes.push(sprite);
                 this.currentBoardGroup.add(sprite);
