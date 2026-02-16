@@ -1,4 +1,4 @@
-/* Game controller -- ties board, effects, and chess.js together */
+/* Game controller – ties Board3D and chess.js together */
 var Game = {
     chess: null,
     selected: null,
@@ -8,8 +8,7 @@ var Game = {
         this.chess = new Chess();
 
         var self = this;
-        ChessBoard.init('board', function (sq) { self.handleClick(sq); });
-        Effects.init('effects');
+        Board3D.init('scene-container', function (sq) { self.handleClick(sq); });
 
         document.getElementById('reset').addEventListener('click', function () {
             self.reset();
@@ -23,47 +22,38 @@ var Game = {
         var piece = this.chess.get(sq);
 
         if (this.selected) {
-            // Try to make a move
             var moves = this.chess.moves({ square: this.selected, verbose: true });
             var targetMove = null;
             for (var i = 0; i < moves.length; i++) {
-                if (moves[i].to === sq) {
-                    targetMove = moves[i];
-                    break;
-                }
+                if (moves[i].to === sq) { targetMove = moves[i]; break; }
             }
 
-            if (targetMove) {
-                this.makeMove(targetMove);
-                return;
-            }
+            if (targetMove) { this.makeMove(targetMove); return; }
 
-            // Deselect if clicking same square
             if (sq === this.selected) {
-                ChessBoard.clearHighlights();
+                Board3D.clearHighlights();
                 this.selected = null;
                 return;
             }
         }
 
-        // Select piece if it belongs to current player
         if (piece && piece.color === this.chess.turn()) {
             this.selected = sq;
             var legalMoves = this.chess.moves({ square: sq, verbose: true });
-            ChessBoard.select(sq);
-            ChessBoard.showLegalMoves(legalMoves, this.chess.board());
+            Board3D.select(sq);
+            Board3D.showLegalMoves(legalMoves, this.chess.board());
         } else {
-            ChessBoard.clearHighlights();
+            Board3D.clearHighlights();
             this.selected = null;
         }
     },
 
     makeMove: function (move) {
-        var fromPos = ChessBoard.getSquareCenter(move.from);
-        var toPos = ChessBoard.getSquareCenter(move.to);
-        var isCapture = !!move.captured;
+        var isWhite = this.chess.turn() === 'w';
 
-        // Auto-promote to queen
+        // Snapshot board BEFORE move for history layer
+        var boardBefore = this._cloneBoard();
+
         var result = this.chess.move({
             from: move.from,
             to: move.to,
@@ -78,46 +68,38 @@ var Game = {
             piece: move.piece,
             captured: move.captured || null,
             san: result.san,
-            timestamp: Date.now()
+            isWhite: isWhite
         });
 
-        // Visual effects
-        Effects.addMoveTrail(fromPos, toPos);
-        if (isCapture) {
-            Effects.addCaptureEffect(toPos);
-        }
+        // 3D: add history layer (pre-move snapshot) with connecting line
+        Board3D.addHistorySnapshot(boardBefore, move.from, move.to, isWhite);
 
-        ChessBoard.clearHighlights();
-        ChessBoard.showLastMove(move.from, move.to);
+        // 3D: persistent move line on current board
+        Board3D.addMoveLine(move.from, move.to, isWhite);
+
+        Board3D.clearHighlights();
+        Board3D.showLastMove(move.from, move.to);
         this.selected = null;
         this.render();
         this.updateStatus();
         this.updateMoveList();
-
-        // Check effect
-        if (this.chess.in_check()) {
-            var kingSquare = this._findKing(this.chess.turn());
-            if (kingSquare) {
-                Effects.addCheckEffect(ChessBoard.getSquareCenter(kingSquare));
-            }
-        }
     },
 
-    _findKing: function (color) {
+    _cloneBoard: function () {
         var board = this.chess.board();
+        var clone = [];
         for (var r = 0; r < 8; r++) {
+            clone[r] = [];
             for (var c = 0; c < 8; c++) {
                 var p = board[r][c];
-                if (p && p.type === 'k' && p.color === color) {
-                    return String.fromCharCode(97 + c) + (8 - r);
-                }
+                clone[r][c] = p ? { type: p.type, color: p.color } : null;
             }
         }
-        return null;
+        return clone;
     },
 
     render: function () {
-        ChessBoard.render(this.chess.board());
+        Board3D.render(this.chess.board());
     },
 
     updateStatus: function () {
@@ -164,18 +146,10 @@ var Game = {
         this.chess.reset();
         this.selected = null;
         this.moveHistory = [];
-        ChessBoard.clearHighlights();
-        ChessBoard.lastMoveSquares = null;
-        Effects.clear();
+        Board3D.clearAll();
         document.getElementById('moves').innerHTML = '';
         this.render();
         this.updateStatus();
-
-        // Clear last-move highlights from all squares
-        var squares = document.querySelectorAll('.square.last-move');
-        for (var i = 0; i < squares.length; i++) {
-            squares[i].classList.remove('last-move');
-        }
     }
 };
 
