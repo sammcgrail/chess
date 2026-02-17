@@ -808,37 +808,25 @@ body {
         padding: 0.5rem;
     }
 
-    /* FEN display improvements for mobile */
+    /* FEN display improvements for mobile - make it taller */
     #fen-display {
-        font-size: 0.55rem;
-        padding: 0.3rem 0.5rem;
+        font-size: 0.6rem;
+        padding: 0.5rem;
+        min-height: 60px;
     }
 
     #fen-text {
-        -webkit-line-clamp: 3;
-        line-height: 1.4;
+        -webkit-line-clamp: 4;
+        line-height: 1.5;
     }
 
     .fen-nav {
         display: flex;
     }
 
-    /* Moves display improvements for mobile */
+    /* Hide moves list on mobile - just show FEN */
     #moves {
-        min-height: 50px;
-        max-height: 80px;
-        padding: 0.5rem;
-        font-size: 0.75rem;
-    }
-
-    .move-pair {
-        gap: 0.5rem;
-        padding: 0.1rem 0;
-    }
-
-    .move-number {
-        min-width: 1.5rem;
-        font-size: 0.7rem;
+        display: none;
     }
 
     #timeline-panel {
