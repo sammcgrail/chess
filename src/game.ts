@@ -87,8 +87,8 @@ class GameManager {
           e.preventDefault();
           this.focusActiveTimeline();
           break;
-        case 'r':
-        case 'R':
+        case 'c':
+        case 'C':
           e.preventDefault();
           this.resetCameraView();
           break;
