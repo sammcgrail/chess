@@ -144,6 +144,11 @@ class GameManager {
       cpuToggle.addEventListener('click', () => this.cpuToggle());
     }
 
+    const pauseBtn = document.getElementById('cpu-pause');
+    if (pauseBtn) {
+      pauseBtn.addEventListener('click', () => this.cpuTogglePause());
+    }
+
     const speedSlider = document.getElementById('cpu-speed') as HTMLInputElement | null;
     if (speedSlider) {
       speedSlider.addEventListener('input', () => {
@@ -168,11 +173,15 @@ class GameManager {
       });
     }
 
-    const whitePortal = document.getElementById('cpu-white-portal') as HTMLInputElement | null;
-    if (whitePortal) {
-      whitePortal.addEventListener('input', () => {
-        this.cpuSetWhitePortalBias(parseInt(whitePortal.value) / 100);
-      });
+    // Per-piece portal sliders for white
+    const pieceTypes = ['q', 'r', 'b', 'n'] as const;
+    for (const pt of pieceTypes) {
+      const slider = document.getElementById(`cpu-white-portal-${pt}`) as HTMLInputElement | null;
+      if (slider) {
+        slider.addEventListener('input', () => {
+          this.cpuWhitePortalBias[pt] = parseInt(slider.value) / 100;
+        });
+      }
     }
 
     const whiteCapture = document.getElementById('cpu-white-capture') as HTMLInputElement | null;
@@ -191,11 +200,14 @@ class GameManager {
       });
     }
 
-    const blackPortal = document.getElementById('cpu-black-portal') as HTMLInputElement | null;
-    if (blackPortal) {
-      blackPortal.addEventListener('input', () => {
-        this.cpuSetBlackPortalBias(parseInt(blackPortal.value) / 100);
-      });
+    // Per-piece portal sliders for black
+    for (const pt of pieceTypes) {
+      const slider = document.getElementById(`cpu-black-portal-${pt}`) as HTMLInputElement | null;
+      if (slider) {
+        slider.addEventListener('input', () => {
+          this.cpuBlackPortalBias[pt] = parseInt(slider.value) / 100;
+        });
+      }
     }
 
     const blackCapture = document.getElementById('cpu-black-capture') as HTMLInputElement | null;
@@ -509,7 +521,7 @@ timelines - list timelines`,
     return this.timelines[id];
   }
 
-  setActiveTimeline(id: number): void {
+  setActiveTimeline(id: number, autoFocus: boolean = true): void {
     const previousId = this.activeTimelineId;
     this.activeTimelineId = id;
     this.viewingMoveIndex = null; // Reset to current position when switching timelines
@@ -520,8 +532,8 @@ timelines - list timelines`,
     this.updateTimelineList();
     this._updateMoveSlider();
 
-    // Auto-focus on the new timeline with animation (if switching timelines)
-    if (previousId !== id) {
+    // Auto-focus on the new timeline with animation (if switching timelines and autoFocus enabled)
+    if (autoFocus && previousId !== id) {
       Board3D.focusTimeline(id, true);
     }
   }
@@ -732,8 +744,9 @@ timelines - list timelines`,
       newId
     );
 
-    // Switch to the new timeline
-    this.setActiveTimeline(newId);
+    // Switch to the new timeline (respect camera follow setting for CPU mode)
+    const shouldFocus = !this.cpuEnabled || this.cpuCameraFollow;
+    this.setActiveTimeline(newId, shouldFocus);
     this.renderTimeline(newId);
 
     // Auto-select the piece on the new timeline
@@ -956,13 +969,15 @@ timelines - list timelines`,
 
   /* -- Time Travel Movement (backward in time) -- */
 
-  /** Get all valid time travel targets for a queen (moving backward in time) */
+  /** Get all valid time travel targets for a piece (moving backward in time) */
   private _getTimeTravelTargets(
     sourceTimelineId: number,
     square: Square,
     piece: Piece
   ): TimeTravelTarget[] {
-    if (piece.type !== 'q') return [];  // Only queens can time travel
+    // Queens, Rooks, Bishops, and Knights can time travel
+    const canTimeTravel = ['q', 'r', 'b', 'n'].includes(piece.type);
+    if (!canTimeTravel) return [];
 
     const tl = this.timelines[sourceTimelineId];
     if (!tl) return [];
@@ -1001,7 +1016,7 @@ timelines - list timelines`,
     return targets;
   }
 
-  /** Execute a time travel move - queen goes back in time, creating a new timeline */
+  /** Execute a time travel move - piece goes back in time, creating a new timeline */
   private _makeTimeTravelMove(
     sourceTimelineId: number,
     sourceSquare: Square,
@@ -1164,9 +1179,10 @@ timelines - list timelines`,
       isWhite
     );
 
-    // 4. Switch to the new timeline
+    // 4. Switch to the new timeline (respect camera follow setting for CPU mode)
     this.clearSelection();
-    this.setActiveTimeline(newId);
+    const shouldFocus = !this.cpuEnabled || this.cpuCameraFollow;
+    this.setActiveTimeline(newId, shouldFocus);
     this.renderTimeline(sourceTimelineId);
     this.renderTimeline(newId);
     this.updateTimelineList();
@@ -1694,6 +1710,7 @@ timelines - list timelines`,
 
   // CPU state
   private cpuEnabled = false;
+  private cpuPaused = false;
   private cpuTimer: number | null = null;
   private cpuMoveDelay = 400;  // ms between moves (faster for visual effect)
   private maxTimelines = 10;   // Limit timeline creation
@@ -1703,10 +1720,12 @@ timelines - list timelines`,
   // Per-color CPU settings
   private cpuWhiteEnabled = true;
   private cpuBlackEnabled = true;
-  private cpuWhitePortalBias = 0.3;
-  private cpuBlackPortalBias = 0.3;
   private cpuWhiteCapturePreference = 0.7;
   private cpuBlackCapturePreference = 0.7;
+
+  // Per-piece portal biases (per color)
+  private cpuWhitePortalBias: Record<string, number> = { q: 0.3, r: 0.2, b: 0.15, n: 0.1 };
+  private cpuBlackPortalBias: Record<string, number> = { q: 0.3, r: 0.2, b: 0.15, n: 0.1 };
 
   /** Start CPU auto-play mode */
   cpuStart(): void {
@@ -1719,6 +1738,7 @@ timelines - list timelines`,
   /** Stop CPU auto-play mode */
   cpuStop(): void {
     this.cpuEnabled = false;
+    this.cpuPaused = false;
     if (this.cpuTimer !== null) {
       clearTimeout(this.cpuTimer);
       this.cpuTimer = null;
@@ -1732,6 +1752,18 @@ timelines - list timelines`,
       this.cpuStop();
     } else {
       this.cpuStart();
+    }
+  }
+
+  /** Toggle pause mode (while CPU is running) */
+  cpuTogglePause(): void {
+    if (!this.cpuEnabled) return;
+    this.cpuPaused = !this.cpuPaused;
+    this._updateCpuUI();
+
+    // If unpausing, kick off the next tick
+    if (!this.cpuPaused && this.cpuTimer === null) {
+      this._cpuTick();
     }
   }
 
@@ -1781,6 +1813,10 @@ timelines - list timelines`,
   /** Main CPU tick - called repeatedly while enabled */
   private _cpuTick(): void {
     if (!this.cpuEnabled) return;
+    if (this.cpuPaused) {
+      this.cpuTimer = null;
+      return;
+    }
 
     // Check if this color's CPU is enabled
     const isWhiteTurn = this.cpuGlobalTurn === 'w';
@@ -1844,10 +1880,7 @@ timelines - list timelines`,
 
     // Switch to this timeline and animate camera if follow mode enabled
     if (this.activeTimelineId !== tlId) {
-      this.setActiveTimeline(tlId);
-      if (this.cpuCameraFollow) {
-        Board3D.focusTimeline(tlId, true);
-      }
+      this.setActiveTimeline(tlId, this.cpuCameraFollow);
     }
 
     // Get legal moves
@@ -1893,25 +1926,50 @@ timelines - list timelines`,
 
     const color = tl.chess.turn();
     const board = tl.chess.board();
+    const isWhite = color === 'w';
+    const portalBiases = isWhite ? this.cpuWhitePortalBias : this.cpuBlackPortalBias;
 
-    // Find queens of current color
+    // Collect all portal opportunities with their biases
+    const opportunities: Array<{
+      target: TimeTravelTarget;
+      sourceSquare: Square;
+      piece: Piece;
+      bias: number;
+    }> = [];
+
+    // Find pieces that can time travel (q, r, b, n)
+    const timeTravelPieces = ['q', 'r', 'b', 'n'];
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
         const piece = board[r][c];
-        if (piece && piece.type === 'q' && piece.color === color) {
+        if (piece && timeTravelPieces.includes(piece.type) && piece.color === color) {
+          const bias = portalBiases[piece.type] || 0;
+          if (bias <= 0) continue; // Skip if bias is 0
+
           const square = (String.fromCharCode(97 + c) + (8 - r)) as Square;
           const targets = this._getTimeTravelTargets(tlId, square, piece);
 
-          if (targets.length > 0) {
-            // Pick a random target, preferring captures
-            const captureTargets = targets.filter(t => t.isCapture);
-            const target = captureTargets.length > 0
-              ? captureTargets[Math.floor(Math.random() * captureTargets.length)]
-              : targets[Math.floor(Math.random() * targets.length)];
-
-            return { ...target, sourceSquare: square, piece };
+          for (const target of targets) {
+            opportunities.push({ target, sourceSquare: square, piece, bias });
           }
         }
+      }
+    }
+
+    if (opportunities.length === 0) return null;
+
+    // For each opportunity, roll dice based on its bias
+    // Prefer captures, use highest-bias piece type
+    const captures = opportunities.filter(o => o.target.isCapture);
+    const pool = captures.length > 0 ? captures : opportunities;
+
+    // Sort by bias (highest first) and pick from top opportunities
+    pool.sort((a, b) => b.bias - a.bias);
+
+    // Pick the first opportunity that passes its bias check
+    for (const opp of pool) {
+      if (Math.random() < opp.bias) {
+        return { ...opp.target, sourceSquare: opp.sourceSquare, piece: opp.piece };
       }
     }
 
@@ -1924,6 +1982,13 @@ timelines - list timelines`,
     if (btn) {
       btn.textContent = this.cpuEnabled ? 'Stop CPU' : 'Start CPU';
       btn.classList.toggle('active', this.cpuEnabled);
+    }
+
+    const pauseBtn = document.getElementById('cpu-pause') as HTMLButtonElement | null;
+    if (pauseBtn) {
+      pauseBtn.disabled = !this.cpuEnabled;
+      pauseBtn.textContent = this.cpuPaused ? 'Resume' : 'Pause';
+      pauseBtn.classList.toggle('active', this.cpuPaused);
     }
 
     const cameraBtn = document.getElementById('cpu-camera-toggle');
