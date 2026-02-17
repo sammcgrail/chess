@@ -383,6 +383,27 @@ body {
     color: #66ff88;
 }
 
+#cpu-pause {
+    background: rgba(55, 55, 95, 0.6);
+    color: #e0e0e0;
+    border: 1px solid rgba(80, 80, 160, 0.3);
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.2s;
+}
+
+#cpu-pause:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+#cpu-pause.active {
+    background: rgba(200, 160, 80, 0.3);
+    border-color: rgba(200, 160, 80, 0.5);
+    color: #ffcc66;
+}
+
 #cpu-controls {
     background: rgba(35, 35, 65, 0.4);
     border-radius: 10px;
@@ -489,6 +510,35 @@ body {
     background: rgba(60, 100, 60, 0.4);
     border-color: rgba(80, 160, 80, 0.5);
     color: #88bb88;
+}
+
+/* Per-piece portal sliders */
+.portal-sliders {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr;
+    gap: 0.2rem 0.4rem;
+    align-items: center;
+    margin-top: 0.3rem;
+    font-size: 0.7rem;
+}
+
+.portal-label {
+    grid-column: 1 / -1;
+    color: #8888bb;
+    font-size: 0.65rem;
+    margin-bottom: 0.1rem;
+}
+
+.portal-sliders label {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    font-size: 0.85rem;
+}
+
+.portal-sliders input[type="range"] {
+    width: 50px;
+    height: 4px;
 }
 
 /* Medium screens - slightly smaller sidebar */
