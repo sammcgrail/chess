@@ -582,6 +582,9 @@ class GameManager {
       col.showLastMove(move.from, move.to);
     }
 
+    // Update branch lines since history layers may have shifted
+    Board3D.updateBranchLines();
+
     this.clearSelection();
     this.renderTimeline(tlId);
     this.updateStatus();
@@ -718,6 +721,9 @@ class GameManager {
       targetCol.addSnapshot(this._getSnapshotBoard(targetBoardBefore), square, square, isWhite);
       targetCol.showLastMove(square, square);
     }
+
+    // Update branch lines since history layers may have shifted
+    Board3D.updateBranchLines();
 
     // Draw line between timelines to show the move
     Board3D.addCrossTimelineLine(sourceTimelineId, targetTimelineId, square, isWhite);

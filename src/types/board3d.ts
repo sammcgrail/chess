@@ -138,5 +138,6 @@ export interface IBoard3D {
   setActiveTimeline(id: number): void;
   focusTimeline(id: number, animate: boolean): void;
   addBranchLine(fromTlId: number, fromTurn: number, toTlId: number): void;
+  updateBranchLines(): void;
   clearAll(): void;
 }
