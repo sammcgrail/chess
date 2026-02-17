@@ -65,6 +65,7 @@ export class TimelineCol implements ITimelineCol {
   private moveLineGroup: Group;
   interLayerGroup: Group;
   private crossTimelineTargets: Mesh[] = [];  // Purple highlights for cross-timeline moves
+  private timeTravelTargets: Mesh[] = [];     // Cyan-green portals for time travel moves
 
   constructor(
     scene: Scene,
@@ -308,6 +309,76 @@ export class TimelineCol implements ITimelineCol {
       this.group.remove(mesh);
     }
     this.crossTimelineTargets = [];
+  }
+
+  /* Time travel target indicators (on history layers) */
+  showTimeTravelTarget(turnIndex: number, sq: string, isCapture: boolean): void {
+    // turnIndex 0 = most recent history layer, which is at historyLayers[0]
+    if (turnIndex < 0 || turnIndex >= this.historyLayers.length) return;
+
+    const layer = this.historyLayers[turnIndex];
+    if (!layer) return;
+
+    const pos = this._fromSq(sq);
+    const layerY = layer.position.y;
+
+    // Create a glowing portal/ring effect - cyan-green for time travel
+    const portalColor = 0x44ffaa;
+
+    // Outer glow ring
+    const outerRingGeo = new THREE.TorusGeometry(0.42, 0.06, 8, 32);
+    const outerRingMat = new THREE.MeshBasicMaterial({
+      color: portalColor,
+      transparent: true,
+      opacity: 0.8,
+      side: THREE.DoubleSide,
+    });
+    const outerRing = new THREE.Mesh(outerRingGeo, outerRingMat);
+    outerRing.rotation.x = -Math.PI / 2;
+    outerRing.position.set(pos.c - 3.5, 0.12, pos.r - 3.5);
+    layer.add(outerRing);
+    this.timeTravelTargets.push(outerRing);
+
+    // Inner glow disc
+    const glowGeo = new THREE.CircleGeometry(0.36, 32);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: portalColor,
+      transparent: true,
+      opacity: isCapture ? 0.4 : 0.25,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const glow = new THREE.Mesh(glowGeo, glowMat);
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.set(pos.c - 3.5, 0.11, pos.r - 3.5);
+    layer.add(glow);
+    this.timeTravelTargets.push(glow);
+
+    // Capture indicator (red-ish outer ring if capturing)
+    if (isCapture) {
+      const captureRingGeo = new THREE.TorusGeometry(0.48, 0.04, 8, 32);
+      const captureRingMat = new THREE.MeshBasicMaterial({
+        color: 0xff6666,
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide,
+      });
+      const captureRing = new THREE.Mesh(captureRingGeo, captureRingMat);
+      captureRing.rotation.x = -Math.PI / 2;
+      captureRing.position.set(pos.c - 3.5, 0.13, pos.r - 3.5);
+      layer.add(captureRing);
+      this.timeTravelTargets.push(captureRing);
+    }
+  }
+
+  clearTimeTravelTargets(): void {
+    // Remove all time travel target meshes from their parent layers
+    for (const mesh of this.timeTravelTargets) {
+      if (mesh.parent) {
+        mesh.parent.remove(mesh);
+      }
+    }
+    this.timeTravelTargets = [];
   }
 
   /* persistent move lines on current board */
@@ -688,6 +759,45 @@ class Board3DManager implements IBoard3D {
     // Purple for cross-timeline moves
     const color = 0xaa44ff;
     this.branchLineGroup.add(Board3DManager._glowTube(from, to, color, 0.03, 0.12, true));
+  }
+
+  /** Add a time travel line showing queen moving backward in time to create new timeline */
+  addTimeTravelLine(
+    sourceTlId: number,
+    targetTurnIndex: number,
+    newTlId: number,
+    square: string,
+    isWhite: boolean
+  ): void {
+    const sourceCol = this.timelineCols[sourceTlId];
+    const newCol = this.timelineCols[newTlId];
+    if (!sourceCol || !newCol || !this.branchLineGroup) return;
+
+    const pos = this._fromSq(square);
+    const sqX = pos.c - 3.5;
+    const sqZ = pos.r - 3.5;
+
+    // Line goes: source board (top) -> down through time -> across to new timeline
+    const sourceY = 0.3;  // Current board height
+    const targetY = -(targetTurnIndex + 1) * TimelineCol.LAYER_GAP + 0.2;  // Historical layer height
+
+    // Start point: queen's position on current source board
+    const start = new THREE.Vector3(sourceCol.xOffset + sqX, sourceY, sqZ);
+
+    // Mid point: same square but at the historical layer depth (in source timeline)
+    const mid = new THREE.Vector3(sourceCol.xOffset + sqX, targetY, sqZ);
+
+    // End point: the new timeline's current board (where queen arrived)
+    const end = new THREE.Vector3(newCol.xOffset + sqX, 0.3, sqZ);
+
+    // Cyan-green for time travel
+    const color = 0x44ffaa;
+
+    // Vertical line down through time
+    this.branchLineGroup.add(Board3DManager._glowTube(start, mid, color, 0.03, 0.12, false));
+
+    // Horizontal/arc line to new timeline
+    this.branchLineGroup.add(Board3DManager._glowTube(mid, end, color, 0.03, 0.12, true));
   }
 
   private _fromSq(sq: string): { r: number; c: number } {

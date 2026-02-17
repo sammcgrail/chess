@@ -113,6 +113,27 @@ export interface CrossTimelineSelection {
 }
 
 // ===============================================================
+// Time Travel types (backward movement through time)
+// ===============================================================
+
+/** A valid time travel target (queen moving back in time to create new timeline) */
+export interface TimeTravelTarget {
+  sourceTimelineId: number;
+  targetTurnIndex: number;      // Which historical snapshot to arrive at
+  targetSquare: Square;
+  isCapture: boolean;
+  capturedPiece?: Piece | null;
+}
+
+/** Selection state when time travel is available */
+export interface TimeTravelSelection {
+  sourceTimelineId: number;
+  sourceSquare: Square;
+  piece: Piece;
+  validTargets: TimeTravelTarget[];
+}
+
+// ===============================================================
 // Click/interaction types
 // ===============================================================
 

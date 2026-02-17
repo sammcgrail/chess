@@ -17,6 +17,8 @@ import type {
   CrossTimelineMove,
   CrossTimelineMoveTarget,
   CrossTimelineSelection,
+  TimeTravelTarget,
+  TimeTravelSelection,
   Square,
 } from './types';
 
@@ -31,6 +33,9 @@ class GameManager {
 
   // Cross-timeline movement state
   private crossTimelineSelection: CrossTimelineSelection | null = null;
+
+  // Time travel movement state (queen moving backward in time)
+  private timeTravelSelection: TimeTravelSelection | null = null;
 
   init(): void {
     Board3D.init('scene-container', (info) => this.handleClick(info));
@@ -317,7 +322,25 @@ class GameManager {
     const isHistory = info.isHistory;
     const turn = info.turn;
 
-    // Clicking on a history board -> potential fork
+    // Check for time travel portal click (clicking history board with time travel active)
+    if (isHistory && this.timeTravelSelection) {
+      const target = this.timeTravelSelection.validTargets.find(
+        (t) => t.sourceTimelineId === tlId && t.targetTurnIndex === turn && t.targetSquare === sq
+      );
+      if (target) {
+        // Execute time travel move!
+        this.makeTimeTravelMove(
+          this.timeTravelSelection.sourceTimelineId,
+          this.timeTravelSelection.sourceSquare,
+          target.targetTurnIndex,
+          this.timeTravelSelection.piece,
+          target.isCapture ? target.capturedPiece : null
+        );
+        return;
+      }
+    }
+
+    // Clicking on a history board without valid time travel target -> do nothing
     if (isHistory) {
       this._handleHistoryClick(tlId, turn, sq);
       return;
@@ -401,6 +424,19 @@ class GameManager {
           // Show cross-timeline targets in other timelines
           this._showCrossTimelineTargets(crossTargets);
         }
+
+        // Check for time travel capability (queen moving backward in time)
+        const timeTravelTargets = this.getTimeTravelTargets(tlId, sq as Square, piece);
+        if (timeTravelTargets.length > 0) {
+          this.timeTravelSelection = {
+            sourceTimelineId: tlId,
+            sourceSquare: sq as Square,
+            piece,
+            validTargets: timeTravelTargets,
+          };
+          // Show time travel portal targets on history boards
+          this._showTimeTravelTargets(timeTravelTargets);
+        }
       }
     } else {
       this.clearSelection();
@@ -408,35 +444,10 @@ class GameManager {
   }
 
   private _handleHistoryClick(tlId: number, turnIndex: number, sq: string): void {
-    const tl = this.timelines[tlId];
-    if (!tl) return;
-
-    // Get the board state at that turn
-    // turnIndex 0 = most recent history, which is snapshot at (total snapshots - 2)
-    const snapshotIdx = tl.snapshots.length - 2 - turnIndex;
-    if (snapshotIdx < 0) return;
-
-    const snapshot = tl.snapshots[snapshotIdx];
-    if (!snapshot) return;
-
-    // Check if there's a piece belonging to current turn player
-    const pos = this._fromSq(sq);
-    const board = this._getSnapshotBoard(snapshot);
-    const piece = board[pos.r][pos.c];
-    if (!piece) return;
-
-    // Determine whose turn it was at that snapshot
-    // Try to get turn from FEN first (accurate for nested forks)
-    let turnColor = this._getSnapshotTurn(snapshot);
-    if (!turnColor) {
-      // Fallback for old snapshots without FEN: use index parity
-      // (This is less accurate for nested forks but maintains backward compat)
-      turnColor = snapshotIdx % 2 === 0 ? 'w' : 'b';
-    }
-    if (piece.color !== turnColor) return;
-
-    // Fork! Create a new timeline from this point
-    this._forkTimeline(tlId, snapshotIdx, sq);
+    // History boards are read-only views
+    // Timeline forking only happens via queen time travel moves
+    // (clicking a time travel portal target, not directly clicking history)
+    return;
   }
 
   private _forkTimeline(parentTlId: number, snapshotIdx: number, selectedSq: string): void {
@@ -732,6 +743,183 @@ class GameManager {
     this._updateMoveSlider();
   }
 
+  /* -- Time Travel Movement (backward in time) -- */
+
+  /** Get all valid time travel targets for a queen (moving backward in time) */
+  private getTimeTravelTargets(
+    sourceTimelineId: number,
+    square: Square,
+    piece: Piece
+  ): TimeTravelTarget[] {
+    if (piece.type !== 'q') return [];  // Only queens can time travel
+
+    const tl = this.timelines[sourceTimelineId];
+    if (!tl) return [];
+
+    // Need at least 2 snapshots (initial + at least 1 move) for time travel
+    if (tl.snapshots.length < 2) return [];
+
+    const targets: TimeTravelTarget[] = [];
+
+    // Queen can travel to any previous board state where:
+    // 1. The same square is empty OR occupied by enemy piece
+    // 2. The snapshot represents a past state (not the current board)
+    // We iterate snapshots from most recent to oldest (excluding current)
+    for (let snapshotIdx = tl.snapshots.length - 2; snapshotIdx >= 0; snapshotIdx--) {
+      const snapshot = tl.snapshots[snapshotIdx];
+      const board = this._getSnapshotBoard(snapshot);
+      const pos = this._fromSq(square);
+      const targetPiece = board[pos.r][pos.c];
+
+      // Can arrive if square is empty or has enemy piece (capture)
+      if (!targetPiece || targetPiece.color !== piece.color) {
+        // turnIndex is relative to history layers (0 = most recent history)
+        // Snapshot index 0 is initial state, snapshot length-1 is current
+        // History layer 0 = snapshot at (length - 2), layer 1 = snapshot at (length - 3), etc.
+        const turnIndex = tl.snapshots.length - 2 - snapshotIdx;
+        targets.push({
+          sourceTimelineId,
+          targetTurnIndex: turnIndex,
+          targetSquare: square,
+          isCapture: targetPiece !== null,
+          capturedPiece: targetPiece,
+        });
+      }
+    }
+
+    return targets;
+  }
+
+  /** Execute a time travel move - queen goes back in time, creating a new timeline */
+  private makeTimeTravelMove(
+    sourceTimelineId: number,
+    sourceSquare: Square,
+    targetTurnIndex: number,
+    piece: Piece,
+    capturedPiece: Piece | null | undefined
+  ): void {
+    const sourceTl = this.timelines[sourceTimelineId];
+    if (!sourceTl) return;
+
+    const isWhite = piece.color === 'w';
+
+    // Convert turnIndex to snapshot index
+    // turnIndex 0 = snapshot at (length - 2), turnIndex 1 = snapshot at (length - 3), etc.
+    const snapshotIdx = sourceTl.snapshots.length - 2 - targetTurnIndex;
+    if (snapshotIdx < 0) return;
+
+    const targetSnapshot = sourceTl.snapshots[snapshotIdx];
+    if (!targetSnapshot) return;
+
+    // Get FEN at target historical point
+    let fen = this._getSnapshotFen(targetSnapshot);
+    if (!fen) {
+      // Fallback: Rebuild FEN by replaying moves (for old snapshots)
+      const forkChess = new Chess();
+      for (let i = 0; i < snapshotIdx; i++) {
+        if (i < sourceTl.moveHistory.length) {
+          const histMove = sourceTl.moveHistory[i];
+          forkChess.move({ from: histMove.from, to: histMove.to, promotion: histMove.promotion || undefined });
+        }
+      }
+      fen = forkChess.fen();
+    }
+
+    // Clone board before we modify source timeline
+    const sourceBoardBefore = this._cloneBoard(sourceTl.chess);
+
+    // 1. Remove queen from source timeline (it traveled away)
+    const sourceFen = sourceTl.chess.fen();
+    const newSourceFen = this._modifyFen(sourceFen, sourceSquare, null, !isWhite);
+    sourceTl.chess.load(newSourceFen);
+
+    // Record the departure move on source timeline
+    sourceTl.moveHistory.push({
+      from: sourceSquare,
+      to: sourceSquare,
+      piece: 'q',
+      captured: null,
+      san: `Q${sourceSquare}⟳T${targetTurnIndex}`,  // Time travel notation
+      isWhite,
+    });
+    sourceTl.snapshots.push(this._cloneBoard(sourceTl.chess));
+
+    // Update source timeline visual
+    const sourceCol = Board3D.getTimeline(sourceTimelineId);
+    if (sourceCol) {
+      sourceCol.addSnapshot(this._getSnapshotBoard(sourceBoardBefore), sourceSquare, sourceSquare, isWhite);
+      sourceCol.showLastMove(sourceSquare, sourceSquare);
+    }
+
+    // 2. Create a NEW timeline branching from that historical point
+    const newId = this.nextTimelineId++;
+
+    // Calculate x offset: alternate left/right of parent
+    const existingCount = Object.keys(this.timelines).length;
+    const side = existingCount % 2 === 0 ? 1 : -1;
+    const xOffset = sourceTl.xOffset + side * Board3D.TIMELINE_SPACING * Math.ceil(existingCount / 2);
+
+    // Modify the FEN to place the queen on the target square (possibly capturing)
+    const modifiedFen = this._modifyFen(fen, sourceSquare, piece, !isWhite);
+
+    // Create the new timeline with the queen already there
+    const newTl = this._createTimeline(newId, xOffset, sourceTimelineId, snapshotIdx, modifiedFen);
+
+    // Copy snapshots up to the branch point
+    newTl.snapshots = [];
+    for (let s = 0; s <= snapshotIdx; s++) {
+      newTl.snapshots.push(this._deepCloneSnapshot(sourceTl.snapshots[s]));
+    }
+
+    // Add the arrival snapshot (queen now on this timeline)
+    newTl.snapshots.push(this._cloneBoard(newTl.chess));
+
+    // Record the time travel arrival as a move
+    newTl.moveHistory = [];
+    // Copy move history up to branch point
+    for (let m = 0; m < snapshotIdx; m++) {
+      if (m < sourceTl.moveHistory.length) {
+        newTl.moveHistory.push(JSON.parse(JSON.stringify(sourceTl.moveHistory[m])));
+      }
+    }
+    // Add the arrival move
+    newTl.moveHistory.push({
+      from: sourceSquare,
+      to: sourceSquare,
+      piece: 'q',
+      captured: capturedPiece?.type || null,
+      san: `Q${sourceSquare}⟳←T${sourceTimelineId}`,  // Arrived via time travel
+      isWhite,
+    });
+
+    // Add history layers to the new timeline visual
+    const newCol = Board3D.getTimeline(newId);
+    if (newCol) {
+      for (let h = newTl.moveHistory.length - 1; h >= 0; h--) {
+        const mv = newTl.moveHistory[h];
+        const boardBefore = this._getSnapshotBoard(newTl.snapshots[h]);
+        newCol.addSnapshot(boardBefore, mv.from, mv.to, mv.isWhite);
+      }
+    }
+
+    // 3. Add time travel connection line (vertical drop then horizontal)
+    Board3D.addTimeTravelLine(
+      sourceTimelineId,
+      targetTurnIndex,
+      newId,
+      sourceSquare,
+      isWhite
+    );
+
+    // 4. Switch to the new timeline
+    this.clearSelection();
+    this.setActiveTimeline(newId);
+    this.renderTimeline(sourceTimelineId);
+    this.renderTimeline(newId);
+    this.updateTimelineList();
+    this._updateMoveSlider();
+  }
+
   /** Helper: Modify a FEN string to change a square's piece and flip turn */
   private _modifyFen(fen: string, square: Square, newPiece: Piece | null, whiteToMove: boolean): string {
     const parts = fen.split(' ');
@@ -855,6 +1043,11 @@ class GameManager {
       this._clearCrossTimelineTargets();
       this.crossTimelineSelection = null;
     }
+    // Clear time travel highlights
+    if (this.timeTravelSelection) {
+      this._clearTimeTravelTargets();
+      this.timeTravelSelection = null;
+    }
     this.selected = null;
     this.selectedTimelineId = null;
   }
@@ -876,6 +1069,27 @@ class GameManager {
       const col = Board3D.getTimeline(target.targetTimelineId);
       if (col) {
         col.clearCrossTimelineTargets();
+      }
+    }
+  }
+
+  /** Show time travel target indicators on history boards */
+  private _showTimeTravelTargets(targets: TimeTravelTarget[]): void {
+    for (const target of targets) {
+      const col = Board3D.getTimeline(target.sourceTimelineId);
+      if (col) {
+        col.showTimeTravelTarget(target.targetTurnIndex, target.targetSquare, target.isCapture);
+      }
+    }
+  }
+
+  /** Clear time travel target indicators */
+  private _clearTimeTravelTargets(): void {
+    if (!this.timeTravelSelection) return;
+    for (const target of this.timeTravelSelection.validTargets) {
+      const col = Board3D.getTimeline(target.sourceTimelineId);
+      if (col) {
+        col.clearTimeTravelTargets();
       }
     }
   }
