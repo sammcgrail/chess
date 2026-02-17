@@ -5,6 +5,7 @@ var Game = {
     nextTimelineId: 1,
     selected: null,
     selectedTimelineId: null,
+    pendingPromotion: null, // { tlId, move } - awaiting promotion choice
 
     init: function () {
         var self = this;
@@ -134,12 +135,18 @@ var Game = {
 
         // Check if there's a piece belonging to current turn player
         var pos = this._fromSq(sq);
-        var piece = snapshot[pos.r][pos.c];
+        var board = this._getSnapshotBoard(snapshot);
+        var piece = board[pos.r][pos.c];
         if (!piece) return;
 
         // Determine whose turn it was at that snapshot
-        // Snapshot index = number of moves made before that state
-        var turnColor = snapshotIdx % 2 === 0 ? 'w' : 'b';
+        // Try to get turn from FEN first (accurate for nested forks)
+        var turnColor = this._getSnapshotTurn(snapshot);
+        if (!turnColor) {
+            // Fallback for old snapshots without FEN: use index parity
+            // (This is less accurate for nested forks but maintains backward compat)
+            turnColor = snapshotIdx % 2 === 0 ? 'w' : 'b';
+        }
         if (piece.color !== turnColor) return;
 
         // Fork! Create a new timeline from this point
@@ -148,20 +155,30 @@ var Game = {
 
     _forkTimeline: function (parentTlId, snapshotIdx, selectedSq) {
         var parentTl = this.timelines[parentTlId];
+        var snapshot = parentTl.snapshots[snapshotIdx];
 
-        // Rebuild the FEN at that snapshot point by replaying moves
-        var forkChess = new Chess();
-        for (var i = 0; i < snapshotIdx; i++) {
-            if (i < parentTl.moveHistory.length) {
-                forkChess.move({
-                    from: parentTl.moveHistory[i].from,
-                    to: parentTl.moveHistory[i].to,
-                    promotion: 'q'
-                });
+        // Get FEN from snapshot if available (new format), otherwise replay moves
+        var fen = this._getSnapshotFen(snapshot);
+        if (!fen) {
+            // Fallback: Rebuild the FEN by replaying moves (for old snapshots without FEN)
+            var forkChess = new Chess();
+            for (var i = 0; i < snapshotIdx; i++) {
+                if (i < parentTl.moveHistory.length) {
+                    var histMove = parentTl.moveHistory[i];
+                    var moveObj = {
+                        from: histMove.from,
+                        to: histMove.to
+                    };
+                    // Use the actual promotion piece that was played
+                    if (histMove.promotion) {
+                        moveObj.promotion = histMove.promotion;
+                    }
+                    forkChess.move(moveObj);
+                }
             }
+            fen = forkChess.fen();
         }
 
-        var fen = forkChess.fen();
         var newId = this.nextTimelineId++;
 
         // Calculate x offset: alternate left/right of parent
@@ -186,11 +203,14 @@ var Game = {
             }
         }
 
+        // Validate snapshot consistency on the new timeline
+        this._validateSnapshotConsistency(newTl);
+
         // Add snapshots as history layers on the new timeline visual
         // (skip index 0 = initial state, add pairs as before-move states)
         for (var h = newTl.moveHistory.length - 1; h >= 0; h--) {
             var mv = newTl.moveHistory[h];
-            var boardBefore = newTl.snapshots[h];
+            var boardBefore = this._getSnapshotBoard(newTl.snapshots[h]);
             Board3D.getTimeline(newId).addSnapshot(boardBefore, mv.from, mv.to, mv.isWhite);
         }
 
@@ -214,26 +234,49 @@ var Game = {
     },
 
     /* ── Move execution ── */
-    makeMove: function (tlId, move) {
+    makeMove: function (tlId, move, promotionPiece) {
         var tl = this.timelines[tlId];
         if (!tl) return;
         var chess = tl.chess;
         var isWhite = chess.turn() === 'w';
+
+        // Check if this is a pawn promotion move that needs user input
+        if (move.flags && move.flags.indexOf('p') !== -1 && !promotionPiece) {
+            // Show promotion picker and wait for user choice
+            this.pendingPromotion = { tlId: tlId, move: move };
+            this._showPromotionPicker(tlId, move.to, isWhite);
+            return;
+        }
+
         var boardBefore = this._cloneBoard(chess);
 
-        var result = chess.move({ from: move.from, to: move.to, promotion: 'q' });
-        if (!result) return;
+        // Use the provided promotion piece, or default to queen for non-promotion moves
+        var moveObj = { from: move.from, to: move.to };
+        if (move.flags && move.flags.indexOf('p') !== -1) {
+            moveObj.promotion = promotionPiece || 'q';
+        }
 
+        var result = chess.move(moveObj);
+        if (!result) {
+            console.error('Invalid move:', moveObj);
+            return;
+        }
+
+        // Store the actual promotion piece used (if any)
         tl.moveHistory.push({
             from: move.from, to: move.to,
             piece: move.piece, captured: move.captured || null,
-            san: result.san, isWhite: isWhite
+            san: result.san, isWhite: isWhite,
+            promotion: result.promotion || null // Store actual promotion piece
         });
 
         tl.snapshots.push(this._cloneBoard(chess));
 
+        // Validate snapshot/moveHistory consistency
+        this._validateSnapshotConsistency(tl);
+
         var col = Board3D.getTimeline(tlId);
-        col.addSnapshot(boardBefore, move.from, move.to, isWhite);
+        col.addSnapshot(this._getSnapshotBoard(boardBefore), move.from, move.to, isWhite);
         col.addMoveLine(move.from, move.to, isWhite);
 
         this.clearSelection();
@@ -242,6 +285,52 @@ var Game = {
         this.updateStatus();
         this.updateMoveList();
         this.updateTimelineList();
+    },
+
+    /* ── Promotion UI ── */
+    _showPromotionPicker: function (tlId, square, isWhite) {
+        var self = this;
+        var existing = document.getElementById('promotion-picker');
+        if (existing) existing.remove();
+
+        var picker = document.createElement('div');
+        picker.id = 'promotion-picker';
+        picker.innerHTML = '<div class="promo-title">Promote to:</div>' +
+            '<div class="promo-options">' +
+            '<button data-piece="q" title="Queen">' + (isWhite ? '♕' : '♛') + '</button>' +
+            '<button data-piece="r" title="Rook">' + (isWhite ? '♖' : '♜') + '</button>' +
+            '<button data-piece="b" title="Bishop">' + (isWhite ? '♗' : '♝') + '</button>' +
+            '<button data-piece="n" title="Knight">' + (isWhite ? '♘' : '♞') + '</button>' +
+            '</div>';
+
+        picker.querySelectorAll('button').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var piece = this.getAttribute('data-piece');
+                picker.remove();
+                if (self.pendingPromotion) {
+                    var pending = self.pendingPromotion;
+                    self.pendingPromotion = null;
+                    self.makeMove(pending.tlId, pending.move, piece);
+                }
+            });
+        });
+
+        document.getElementById('sidebar').appendChild(picker);
+    },
+
+    /* ── Snapshot consistency validation ── */
+    _validateSnapshotConsistency: function (tl) {
+        // Invariant: snapshots.length === moveHistory.length + 1
+        // (snapshot[0] is initial state, each move adds one snapshot)
+        if (tl.snapshots.length !== tl.moveHistory.length + 1) {
+            console.error('SNAPSHOT CONSISTENCY ERROR:', {
+                timeline: tl.id,
+                snapshotsLength: tl.snapshots.length,
+                moveHistoryLength: tl.moveHistory.length,
+                expected: 'snapshots.length === moveHistory.length + 1'
+            });
+            throw new Error('GameStateError: Snapshot/moveHistory mismatch on timeline ' + tl.id);
+        }
     },
 
     /* ── Rendering ── */
@@ -261,29 +350,75 @@ var Game = {
     },
 
     /* ── Board cloning ── */
+    // Snapshot format: { fen: string, board: 8x8 array }
+    // - fen: full game state for reconstruction (includes castling, en passant, etc.)
+    // - board: piece positions for rendering
     _cloneBoard: function (chess) {
         var board = chess.board();
-        var clone = [];
+        var boardClone = [];
         for (var r = 0; r < 8; r++) {
-            clone[r] = [];
+            boardClone[r] = [];
             for (var c = 0; c < 8; c++) {
                 var p = board[r][c];
-                clone[r][c] = p ? { type: p.type, color: p.color } : null;
+                boardClone[r][c] = p ? { type: p.type, color: p.color } : null;
             }
         }
-        return clone;
+        return {
+            fen: chess.fen(),
+            board: boardClone
+        };
     },
 
     _deepCloneSnapshot: function (snapshot) {
-        var clone = [];
+        // Handle both old format (array) and new format (object with fen/board)
+        if (Array.isArray(snapshot)) {
+            // Old format: just board array
+            var clone = [];
+            for (var r = 0; r < 8; r++) {
+                clone[r] = [];
+                for (var c = 0; c < 8; c++) {
+                    var p = snapshot[r][c];
+                    clone[r][c] = p ? { type: p.type, color: p.color } : null;
+                }
+            }
+            return clone;
+        }
+        // New format: { fen, board }
+        var boardClone = [];
         for (var r = 0; r < 8; r++) {
-            clone[r] = [];
+            boardClone[r] = [];
             for (var c = 0; c < 8; c++) {
-                var p = snapshot[r][c];
-                clone[r][c] = p ? { type: p.type, color: p.color } : null;
+                var p = snapshot.board[r][c];
+                boardClone[r][c] = p ? { type: p.type, color: p.color } : null;
             }
         }
-        return clone;
+        return {
+            fen: snapshot.fen,
+            board: boardClone
+        };
+    },
+
+    // Helper to get board array from snapshot (handles both formats)
+    _getSnapshotBoard: function (snapshot) {
+        if (Array.isArray(snapshot)) return snapshot;
+        return snapshot.board;
+    },
+
+    // Helper to get FEN from snapshot (returns null for old format)
+    _getSnapshotFen: function (snapshot) {
+        if (Array.isArray(snapshot)) return null;
+        return snapshot.fen;
+    },
+
+    // Helper to get turn from snapshot
+    _getSnapshotTurn: function (snapshot) {
+        var fen = this._getSnapshotFen(snapshot);
+        if (fen) {
+            // FEN format: "position turn castling enpassant halfmove fullmove"
+            // Turn is the second field
+            return fen.split(' ')[1]; // 'w' or 'b'
+        }
+        return null;
     },
 
     _fromSq: function (sq) {

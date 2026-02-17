@@ -168,6 +168,52 @@ body {
     border-color: rgba(100, 100, 180, 0.5);
 }
 
+/* Promotion picker */
+#promotion-picker {
+    background: rgba(25, 25, 55, 0.95);
+    border: 1px solid rgba(100, 100, 180, 0.4);
+    border-radius: 12px;
+    padding: 1rem;
+    margin-top: 0.5rem;
+    animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.promo-title {
+    font-size: 0.85rem;
+    color: #8888bb;
+    margin-bottom: 0.75rem;
+    text-align: center;
+}
+
+.promo-options {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+.promo-options button {
+    width: 48px;
+    height: 48px;
+    font-size: 2rem;
+    background: rgba(55, 55, 95, 0.6);
+    border: 1px solid rgba(80, 80, 160, 0.3);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+    color: #e0e0e0;
+}
+
+.promo-options button:hover {
+    background: rgba(75, 75, 125, 0.8);
+    border-color: rgba(120, 120, 200, 0.6);
+    transform: scale(1.05);
+}
+
 @media (max-width: 700px) {
     #app {
         flex-direction: column;
@@ -180,5 +226,11 @@ body {
         height: 45vh;
         border-left: none;
         border-top: 1px solid rgba(80, 80, 160, 0.2);
+    }
+
+    .promo-options button {
+        width: 56px;
+        height: 56px;
+        font-size: 2.2rem;
     }
 }
