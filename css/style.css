@@ -34,7 +34,7 @@ body {
 #sidebar {
     width: 250px;
     min-width: 180px;
-    max-width: 350px;
+    max-width: 400px;
     flex-shrink: 0;
     flex-grow: 0;
     background: rgba(12, 12, 30, 0.95);
@@ -50,6 +50,23 @@ body {
     position: relative;
 }
 
+#sidebar-resize {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    cursor: ew-resize;
+    background: transparent;
+    transition: background 0.2s;
+    z-index: 11;
+}
+
+#sidebar-resize:hover,
+#sidebar-resize.dragging {
+    background: rgba(100, 140, 200, 0.4);
+}
+
 #status {
     font-size: 1.1rem;
     font-weight: 600;
@@ -58,6 +75,57 @@ body {
     border-radius: 10px;
     text-align: center;
     border: 1px solid rgba(80, 80, 160, 0.2);
+}
+
+/* FEN display with tooltip */
+#fen-display {
+    position: relative;
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: 0.7rem;
+    padding: 0.4rem 0.6rem;
+    background: rgba(25, 25, 45, 0.8);
+    border-radius: 6px;
+    border: 1px solid rgba(80, 80, 160, 0.15);
+    cursor: pointer;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: #8090a0;
+    transition: all 0.2s;
+}
+
+#fen-display:hover {
+    background: rgba(35, 35, 65, 0.9);
+    border-color: rgba(100, 120, 200, 0.4);
+}
+
+#fen-text {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#fen-tooltip {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    margin-top: 4px;
+    padding: 0.6rem;
+    background: rgba(20, 20, 40, 0.98);
+    border: 1px solid rgba(100, 120, 200, 0.5);
+    border-radius: 8px;
+    font-size: 0.65rem;
+    color: #c0d0e0;
+    word-break: break-all;
+    line-height: 1.4;
+    z-index: 100;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+#fen-display:hover #fen-tooltip {
+    display: block;
 }
 
 /* Timeline panel */
@@ -369,6 +437,177 @@ body {
     text-align: center;
 }
 
+/* Button row */
+#button-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+#button-row button {
+    flex: 1;
+}
+
+/* CPU controls */
+#cpu-toggle {
+    padding: 0.75rem;
+    background: rgba(55, 55, 95, 0.6);
+    color: #e0e0e0;
+    border: 1px solid rgba(80, 80, 160, 0.3);
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.2s;
+}
+
+#cpu-toggle:hover {
+    background: rgba(75, 75, 125, 0.7);
+    border-color: rgba(100, 100, 180, 0.5);
+}
+
+#cpu-toggle.active {
+    background: rgba(80, 200, 120, 0.3);
+    border-color: rgba(80, 200, 120, 0.5);
+    color: #66ff88;
+}
+
+#cpu-controls {
+    background: rgba(35, 35, 65, 0.4);
+    border-radius: 10px;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid rgba(80, 80, 160, 0.15);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+#cpu-controls label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.72rem;
+    color: #8888bb;
+}
+
+#cpu-controls input[type="range"] {
+    width: 60%;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: rgba(80, 80, 160, 0.3);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+#cpu-controls input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    background: #6688cc;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+#cpu-camera-toggle {
+    width: 100%;
+    padding: 0.4rem;
+    font-size: 0.72rem;
+    background: rgba(60, 60, 100, 0.4);
+    border: 1px solid rgba(80, 80, 160, 0.3);
+    border-radius: 6px;
+    color: #8888bb;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+#cpu-camera-toggle.active {
+    background: rgba(80, 160, 200, 0.3);
+    border-color: rgba(80, 160, 200, 0.5);
+    color: #88ddff;
+}
+
+/* Per-color CPU controls */
+.cpu-color-controls {
+    background: rgba(40, 40, 70, 0.4);
+    border-radius: 6px;
+    padding: 0.5rem;
+    margin-top: 0.3rem;
+}
+
+.cpu-color-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.4rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.cpu-color-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.cpu-color-dot.white {
+    background: #f0ece0;
+    border: 1px solid #888;
+}
+
+.cpu-color-dot.black {
+    background: #303048;
+    border: 1px solid #aaa;
+}
+
+.cpu-color-toggle {
+    margin-left: auto;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.65rem;
+    background: rgba(100, 60, 60, 0.4);
+    border: 1px solid rgba(160, 80, 80, 0.3);
+    border-radius: 4px;
+    color: #bb8888;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.cpu-color-toggle.active {
+    background: rgba(60, 100, 60, 0.4);
+    border-color: rgba(80, 160, 80, 0.5);
+    color: #88bb88;
+}
+
+/* Per-piece portal sliders */
+.portal-sliders {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.3rem;
+    margin-top: 0.3rem;
+    font-size: 0.7rem;
+}
+
+.portal-label {
+    grid-column: 1 / -1;
+    color: #8888bb;
+    font-size: 0.65rem;
+    margin-bottom: 0.1rem;
+}
+
+.portal-sliders label {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.portal-sliders input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    height: 4px;
+}
+
 /* Medium screens - slightly smaller sidebar */
 @media (max-width: 1000px) {
     #sidebar {
@@ -432,4 +671,73 @@ body {
     .tl-item {
         font-size: 0.75rem;
     }
+}
+
+/* Command panel for programmatic testing */
+#command-panel {
+    background: rgba(35, 35, 65, 0.4);
+    border-radius: 10px;
+    padding: 0.75rem;
+    border: 1px solid rgba(80, 80, 160, 0.15);
+}
+
+#command-input {
+    width: 100%;
+    padding: 0.5rem;
+    background: rgba(20, 20, 40, 0.8);
+    border: 1px solid rgba(80, 80, 160, 0.3);
+    border-radius: 6px;
+    color: #e0e0e0;
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 0.85rem;
+    outline: none;
+}
+
+#command-input:focus {
+    border-color: rgba(100, 136, 204, 0.6);
+}
+
+#command-input::placeholder {
+    color: #666699;
+}
+
+#command-output {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: rgba(10, 10, 25, 0.6);
+    border-radius: 4px;
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 0.75rem;
+    color: #88aa88;
+    max-height: 100px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    display: none;
+}
+
+#command-output.visible {
+    display: block;
+}
+
+#command-output.error {
+    color: #ff6666;
+}
+
+/* Sidebar footer with FPS and version */
+#sidebar-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.55rem;
+    font-family: 'Monaco', 'Menlo', monospace;
+    letter-spacing: 0.02em;
+}
+
+#fps-counter {
+    color: #66aa66;
+}
+
+#version-info {
+    color: #ffffff;
 }

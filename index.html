@@ -5,22 +5,69 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>6D Chess</title>
     <link rel="stylesheet" href="css/style.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
     <div id="app">
         <div id="scene-container"></div>
         <div id="sidebar">
+            <div id="sidebar-resize"></div>
             <div id="status">White to move</div>
+            <div id="fen-display" title="Click to copy FEN">
+                <span id="fen-text"></span>
+                <div id="fen-tooltip"></div>
+            </div>
             <div id="timeline-panel">
                 <div id="timeline-header">Timelines</div>
                 <div id="timeline-list"></div>
             </div>
             <div id="moves"></div>
-            <button id="reset">New Game</button>
+            <div id="button-row">
+                <button id="reset">New Game</button>
+                <button id="cpu-toggle">Start CPU</button>
+            </div>
+            <div id="cpu-controls">
+                <label>Speed: <input type="range" id="cpu-speed" min="100" max="2000" value="400" step="100"></label>
+                <button id="cpu-camera-toggle" class="active">Camera Follow: ON</button>
+                <div id="cpu-white-controls" class="cpu-color-controls">
+                    <div class="cpu-color-header">
+                        <span class="cpu-color-dot white"></span>
+                        <span>White CPU</span>
+                        <button id="cpu-white-toggle" class="cpu-color-toggle active">ON</button>
+                    </div>
+                    <label>Capture: <input type="range" id="cpu-white-capture" min="0" max="100" value="70" step="5"></label>
+                    <div class="portal-sliders">
+                        <span class="portal-label">Portal %:</span>
+                        <label title="Queen">♕<input type="range" id="cpu-white-portal-q" min="0" max="100" value="30" step="5"></label>
+                        <label title="Rook">♖<input type="range" id="cpu-white-portal-r" min="0" max="100" value="20" step="5"></label>
+                        <label title="Bishop">♗<input type="range" id="cpu-white-portal-b" min="0" max="100" value="15" step="5"></label>
+                        <label title="Knight">♘<input type="range" id="cpu-white-portal-n" min="0" max="100" value="10" step="5"></label>
+                    </div>
+                </div>
+                <div id="cpu-black-controls" class="cpu-color-controls">
+                    <div class="cpu-color-header">
+                        <span class="cpu-color-dot black"></span>
+                        <span>Black CPU</span>
+                        <button id="cpu-black-toggle" class="cpu-color-toggle active">ON</button>
+                    </div>
+                    <label>Capture: <input type="range" id="cpu-black-capture" min="0" max="100" value="70" step="5"></label>
+                    <div class="portal-sliders">
+                        <span class="portal-label">Portal %:</span>
+                        <label title="Queen">♛<input type="range" id="cpu-black-portal-q" min="0" max="100" value="30" step="5"></label>
+                        <label title="Rook">♜<input type="range" id="cpu-black-portal-r" min="0" max="100" value="20" step="5"></label>
+                        <label title="Bishop">♝<input type="range" id="cpu-black-portal-b" min="0" max="100" value="15" step="5"></label>
+                        <label title="Knight">♞<input type="range" id="cpu-black-portal-n" min="0" max="100" value="10" step="5"></label>
+                    </div>
+                </div>
+            </div>
+            <div id="command-panel">
+                <input type="text" id="command-input" placeholder="e2e4 or fen or help">
+                <div id="command-output"></div>
+            </div>
             <div id="shortcuts-panel">
                 <div id="shortcuts-header">Keyboard Shortcuts</div>
                 <div class="shortcut-row"><span class="key">W A S D</span> Pan camera</div>
-                <div class="shortcut-row"><span class="key">Q / E</span> Zoom out/in</div>
+                <div class="shortcut-row"><span class="key">Q / E</span> Rotate left/right</div>
                 <div class="shortcut-row"><span class="key">Space</span> Flip board</div>
                 <div class="shortcut-row"><span class="key">F</span> Focus timeline</div>
                 <div class="shortcut-row"><span class="key">C</span> Reset camera</div>
@@ -28,13 +75,17 @@
                 <div class="shortcut-row"><span class="key">Arrows</span> Navigate moves</div>
                 <div class="shortcut-row"><span class="key">Home / End</span> First/last move</div>
             </div>
+            <div id="sidebar-footer">
+                <span id="fps-counter">-- FPS</span>
+                <span id="version-info">v0.1.23</span>
+            </div>
         </div>
     </div>
     <!-- External libraries from CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <!-- TypeScript compiled bundle -->
-    <script src="dist/bundle.js"></script>
+    <!-- TypeScript compiled bundle (with cache buster) -->
+    <script src="dist/bundle.js?v=20260217l"></script>
 </body>
 </html>

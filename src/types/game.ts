@@ -113,6 +113,27 @@ export interface CrossTimelineSelection {
 }
 
 // ===============================================================
+// Time Travel types (backward movement through time)
+// ===============================================================
+
+/** A valid time travel target (queen moving back in time to create new timeline) */
+export interface TimeTravelTarget {
+  sourceTimelineId: number;
+  targetTurnIndex: number;      // Which historical snapshot to arrive at
+  targetSquare: Square;
+  isCapture: boolean;
+  capturedPiece?: Piece | null;
+}
+
+/** Selection state when time travel is available */
+export interface TimeTravelSelection {
+  sourceTimelineId: number;
+  sourceSquare: Square;
+  piece: Piece;
+  validTargets: TimeTravelTarget[];
+}
+
+// ===============================================================
 // Click/interaction types
 // ===============================================================
 
@@ -137,6 +158,8 @@ export interface ChessInstance {
   board(): Board;
   turn(): PieceColor;
   get(square: string): Piece | null;
+  put(piece: Piece, square: string): boolean;
+  remove(square: string): Piece | null;
   move(move: string | { from: string; to: string; promotion?: PieceType }): ChessMove | null;
   moves(options?: { square?: string; verbose?: boolean }): ChessMove[] | string[];
   history(options?: { verbose?: boolean }): string[] | ChessMove[];

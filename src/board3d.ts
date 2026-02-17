@@ -65,6 +65,8 @@ export class TimelineCol implements ITimelineCol {
   private moveLineGroup: Group;
   interLayerGroup: Group;
   private crossTimelineTargets: Mesh[] = [];  // Purple highlights for cross-timeline moves
+  private timeTravelTargets: Mesh[] = [];     // Cyan-green portals for time travel moves
+  private drawnBranchIndices: Set<number> = new Set();  // Track which snapshot indices have branches drawn
 
   constructor(
     scene: Scene,
@@ -187,7 +189,7 @@ export class TimelineCol implements ITimelineCol {
         const sprite = new THREE.Sprite(
           new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false })
         );
-        sprite.position.set(c - 3.5, 0.38, r - 3.5);
+        sprite.position.set(c - 3.5, 0.22, r - 3.5);
         sprite.scale.set(0.88, 0.88, 0.88);
         this.pieceMeshes.push(sprite);
         this.group.add(sprite);
@@ -310,14 +312,95 @@ export class TimelineCol implements ITimelineCol {
     this.crossTimelineTargets = [];
   }
 
+  /* Time travel target indicators (on history layers) */
+  showTimeTravelTarget(turnIndex: number, sq: string, isCapture: boolean): void {
+    // turnIndex 0 = most recent history layer, which is at historyLayers[0]
+    if (turnIndex < 0 || turnIndex >= this.historyLayers.length) return;
+
+    const layer = this.historyLayers[turnIndex];
+    if (!layer) return;
+
+    const pos = this._fromSq(sq);
+    const layerY = layer.position.y;
+
+    // Create a glowing portal/ring effect - cyan-green for time travel
+    const portalColor = 0x44ffaa;
+
+    // Outer glow ring
+    const outerRingGeo = new THREE.TorusGeometry(0.42, 0.06, 8, 32);
+    const outerRingMat = new THREE.MeshBasicMaterial({
+      color: portalColor,
+      transparent: true,
+      opacity: 0.8,
+      side: THREE.DoubleSide,
+    });
+    const outerRing = new THREE.Mesh(outerRingGeo, outerRingMat);
+    outerRing.rotation.x = -Math.PI / 2;
+    outerRing.position.set(pos.c - 3.5, 0.12, pos.r - 3.5);
+    layer.add(outerRing);
+    this.timeTravelTargets.push(outerRing);
+
+    // Inner glow disc
+    const glowGeo = new THREE.CircleGeometry(0.36, 32);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: portalColor,
+      transparent: true,
+      opacity: isCapture ? 0.4 : 0.25,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const glow = new THREE.Mesh(glowGeo, glowMat);
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.set(pos.c - 3.5, 0.11, pos.r - 3.5);
+    layer.add(glow);
+    this.timeTravelTargets.push(glow);
+
+    // Capture indicator (red-ish outer ring if capturing)
+    if (isCapture) {
+      const captureRingGeo = new THREE.TorusGeometry(0.48, 0.04, 8, 32);
+      const captureRingMat = new THREE.MeshBasicMaterial({
+        color: 0xff6666,
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide,
+      });
+      const captureRing = new THREE.Mesh(captureRingGeo, captureRingMat);
+      captureRing.rotation.x = -Math.PI / 2;
+      captureRing.position.set(pos.c - 3.5, 0.13, pos.r - 3.5);
+      layer.add(captureRing);
+      this.timeTravelTargets.push(captureRing);
+    }
+  }
+
+  clearTimeTravelTargets(): void {
+    // Remove all time travel target meshes from their parent layers
+    for (const mesh of this.timeTravelTargets) {
+      if (mesh.parent) {
+        mesh.parent.remove(mesh);
+      }
+    }
+    this.timeTravelTargets = [];
+  }
+
+  /** Mark a snapshot index as having a branch drawn from it */
+  markBranchDrawn(snapshotIndex: number): void {
+    this.drawnBranchIndices.add(snapshotIndex);
+  }
+
+  /** Check if a snapshot index already has a branch drawn */
+  hasBranchDrawn(snapshotIndex: number): boolean {
+    return this.drawnBranchIndices.has(snapshotIndex);
+  }
+
   /* persistent move lines on current board */
   addMoveLine(fromSq: string, toSq: string, isWhite: boolean): void {
     const a = this._sqToWorld(fromSq, 0.09);
     const b = this._sqToWorld(toSq, 0.09);
     a.x -= this.xOffset;
     b.x -= this.xOffset;
-    const col = isWhite ? 0x4488ff : 0xff7744;
-    this.moveLineGroup.add(Board3DManager._glowTube(a, b, col, 0.018, 0.07, false));
+    // Softer, more muted colors and much lower opacity for in-board move lines
+    const col = isWhite ? 0x6688bb : 0xbb8866;  // Lighter, desaturated blue/red
+    this.moveLineGroup.add(Board3DManager._glowTube(a, b, col, 0.012, 0.04, false, 0.3));  // Thinner, less glow, 30% opacity
   }
 
   /* history snapshot */
@@ -359,9 +442,9 @@ export class TimelineCol implements ITimelineCol {
         const m = new THREE.Mesh(
           new THREE.BoxGeometry(0.93, 0.025, 0.93),
           new THREE.MeshStandardMaterial({
-            color: isLight ? 0x7575a8 : 0x44446e,
+            color: isLight ? 0x5a5a88 : 0x38385a,  // Darker colors for history squares
             transparent: true,
-            opacity: 0.2,
+            opacity: 0.15,  // Lower opacity for more prominent grey-out
             metalness: 0.15,
             roughness: 0.8,
           })
@@ -390,9 +473,9 @@ export class TimelineCol implements ITimelineCol {
         const chKey = isW ? piece.type.toUpperCase() : piece.type;
         const tex = this._pieceTex(this._pieceChars[chKey], isW);
         const sp = new THREE.Sprite(
-          new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.35, depthWrite: false })
+          new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.25, depthWrite: false })  // Lower opacity for history pieces
         );
-        sp.position.set(c2 - 3.5, 0.25, r2 - 3.5);
+        sp.position.set(c2 - 3.5, 0.12, r2 - 3.5);
         sp.scale.set(0.7, 0.7, 0.7);
         g.add(sp);
       }
@@ -411,8 +494,18 @@ export class TimelineCol implements ITimelineCol {
   private _layoutLayers(): void {
     for (let i = 0; i < this.historyLayers.length; i++) {
       this.historyLayers[i].position.y = -(i + 1) * TimelineCol.LAYER_GAP;
-      const op = Math.max(0.06, 0.38 - i * 0.025);
+
+      // Calculate snapshot index for this layer (most recent history is layer 0)
+      // historyLayers[0] corresponds to the most recent snapshot before current
+      const snapshotIndex = this.historyLayers.length - 1 - i;
+      const hasBranch = this.drawnBranchIndices.has(snapshotIndex);
+
+      // More prominent grey-out effect: lower base opacity and faster falloff
+      // Even lower opacity for layers with branches (already explored)
+      const baseOp = hasBranch ? 0.12 : 0.28;
+      const op = Math.max(0.04, baseOp - i * 0.035);
       this._setGroupOpacity(this.historyLayers[i], op);
+
       // Update turn indices for history squares
       const sqs = (this.historyLayers[i].userData.sqMeshes as Mesh[]) || [];
       for (let j = 0; j < sqs.length; j++) {
@@ -431,14 +524,22 @@ export class TimelineCol implements ITimelineCol {
       const toSq = layer.userData.moveTo as string;
       const isW = layer.userData.isWhite as boolean;
 
+      // Skip drawing inter-layer lines for layers that have branches
+      // (these are already connected to other timelines)
+      const snapshotIndex = this.historyLayers.length - 1 - j;
+      if (this.drawnBranchIndices.has(snapshotIndex)) {
+        continue;
+      }
+
       const fromY = layer.position.y + 0.1;
       const toY = j === 0 ? 0.1 : this.historyLayers[j - 1].position.y + 0.1;
       const fromW = new THREE.Vector3().copy(this._sqToWorld(fromSq, fromY));
       const toW = new THREE.Vector3().copy(this._sqToWorld(toSq, toY));
       fromW.x -= this.xOffset;
       toW.x -= this.xOffset;
-      const lineCol = isW ? 0x44ddff : 0xffaa33;
-      this.interLayerGroup.add(Board3DManager._glowTube(fromW, toW, lineCol, 0.025, 0.1, true));
+      // Softer, more muted inter-layer lines (same as move lines, but keep time travel visible)
+      const lineCol = isW ? 0x88bbdd : 0xddaa77;  // Lighter, desaturated cyan/orange
+      this.interLayerGroup.add(Board3DManager._glowTube(fromW, toW, lineCol, 0.018, 0.06, true, 0.4));
     }
   }
 
@@ -491,12 +592,35 @@ export class TimelineCol implements ITimelineCol {
     });
   }
 
+  /** Set board state glow (checkmate = red, draw = grey, none = clear) */
+  setBoardGlow(state: 'checkmate' | 'draw' | 'none'): void {
+    let glowColor: Color | null = null;
+    if (state === 'checkmate') {
+      glowColor = new THREE.Color(0xff3333);
+    } else if (state === 'draw') {
+      glowColor = new THREE.Color(0x888888);
+    }
+
+    // Apply glow to all square meshes on the main board
+    for (const mesh of this.squareMeshes) {
+      const mat = mesh.material as MeshStandardMaterial;
+      if (glowColor) {
+        mat.emissive = glowColor;
+        mat.emissiveIntensity = 0.3;
+      } else {
+        mat.emissive = new THREE.Color(0);
+        mat.emissiveIntensity = 0;
+      }
+    }
+  }
+
   clearAll(): void {
     for (let i = 0; i < this.historyLayers.length; i++) {
       this.group.remove(this.historyLayers[i]);
     }
     this.historyLayers = [];
     this.historySquareMeshes = [];
+    this.drawnBranchIndices.clear();  // Clear branch tracking
     while (this.moveLineGroup.children.length) {
       this.moveLineGroup.remove(this.moveLineGroup.children[0]);
     }
@@ -532,6 +656,28 @@ class Board3DManager implements IBoard3D {
   private _downPos: { x: number; y: number } | null = null;
   private _texCache: TextureCache = {};
 
+  // Performance: render-on-demand
+  private _needsRender = true;
+  private _lastRenderTime = 0;
+
+  // Performance: FPS tracking
+  private _frameCount = 0;
+  private _lastFpsUpdate = 0;
+  private _currentFps = 0;
+
+  // Performance: pooled scratch vectors (avoid GC churn)
+  private _tempVec3A = new THREE.Vector3();
+  private _tempVec3B = new THREE.Vector3();
+  private _tempVec3C = new THREE.Vector3();
+
+  // Shared materials for squares (avoid creating 64+ materials per board)
+  private _lightSquareMat: MeshStandardMaterial | null = null;
+  private _darkSquareMat: MeshStandardMaterial | null = null;
+  private _historyLightSquareMat: MeshStandardMaterial | null = null;
+  private _historyDarkSquareMat: MeshStandardMaterial | null = null;
+  private _boardBaseMat: MeshStandardMaterial | null = null;
+  private _boardTrimMat: MeshStandardMaterial | null = null;
+
   timelineCols: Record<number, TimelineCol> = {};
   private branchLineGroup: Group | null = null;
   private particleSystem: Points | null = null;
@@ -547,6 +693,14 @@ class Board3DManager implements IBoard3D {
   private _resizeObserver: ResizeObserver | null = null;
   private _lastContainerWidth = 0;
   private _lastContainerHeight = 0;
+
+  // Visual effects storage
+  private _activeEffects: Array<{
+    mesh: Mesh | Points;
+    startTime: number;
+    duration: number;
+    type: 'portal' | 'capture';
+  }> = [];
 
   readonly PIECE_CHARS: PieceCharMap = {
     K: '\u2654',
@@ -568,6 +722,79 @@ class Board3DManager implements IBoard3D {
   ];
   readonly TIMELINE_SPACING = 12;
 
+  /** Mark that a render is needed (called when state changes) */
+  markDirty(): void {
+    this._needsRender = true;
+  }
+
+  /** Get current FPS */
+  getFps(): number {
+    return this._currentFps;
+  }
+
+  /** Initialize shared materials (called once in init) */
+  private _initSharedMaterials(): void {
+    // Main board squares
+    this._lightSquareMat = new THREE.MeshStandardMaterial({
+      color: 0x7575a8,
+      metalness: 0.15,
+      roughness: 0.75,
+      side: THREE.FrontSide,
+    });
+    this._darkSquareMat = new THREE.MeshStandardMaterial({
+      color: 0x44446e,
+      metalness: 0.15,
+      roughness: 0.75,
+      side: THREE.FrontSide,
+    });
+
+    // History layer squares
+    this._historyLightSquareMat = new THREE.MeshStandardMaterial({
+      color: 0x7575a8,
+      transparent: true,
+      opacity: 0.2,
+      metalness: 0.15,
+      roughness: 0.8,
+    });
+    this._historyDarkSquareMat = new THREE.MeshStandardMaterial({
+      color: 0x44446e,
+      transparent: true,
+      opacity: 0.2,
+      metalness: 0.15,
+      roughness: 0.8,
+    });
+
+    // Board base and trim
+    this._boardBaseMat = new THREE.MeshStandardMaterial({
+      color: 0x15152a,
+      metalness: 0.7,
+      roughness: 0.3,
+    });
+    this._boardTrimMat = new THREE.MeshStandardMaterial({
+      color: 0x333366,
+      metalness: 0.9,
+      roughness: 0.2,
+    });
+  }
+
+  /** Get shared material for square type */
+  getSquareMaterial(isLight: boolean, isHistory: boolean = false): MeshStandardMaterial {
+    if (isHistory) {
+      return isLight ? this._historyLightSquareMat! : this._historyDarkSquareMat!;
+    }
+    return isLight ? this._lightSquareMat! : this._darkSquareMat!;
+  }
+
+  /** Get shared board base material */
+  getBoardBaseMaterial(): MeshStandardMaterial {
+    return this._boardBaseMat!;
+  }
+
+  /** Get shared board trim material */
+  getBoardTrimMaterial(): MeshStandardMaterial {
+    return this._boardTrimMat!;
+  }
+
   init(
     containerId: string,
     onSquareClick: (info: { timelineId: number; square: string; turn: number; isHistory: boolean }) => void
@@ -581,6 +808,9 @@ class Board3DManager implements IBoard3D {
     this._clock = new THREE.Clock();
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2();
+
+    // Initialize shared materials for performance
+    this._initSharedMaterials();
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -677,6 +907,13 @@ class Board3DManager implements IBoard3D {
     const toCol = this.timelineCols[toTlId];
     if (!fromCol || !toCol || !this.branchLineGroup) return;
 
+    // Skip if this branch point has already been drawn
+    const branchKey = fromTurn;
+    if (fromCol.hasBranchDrawn(branchKey)) {
+      return;
+    }
+    fromCol.markBranchDrawn(branchKey);
+
     const fromY = -(fromTurn + 1) * TimelineCol.LAYER_GAP;
     const from = new THREE.Vector3(fromCol.xOffset, fromY + 0.2, 0);
     const to = new THREE.Vector3(toCol.xOffset, 0.2, 0);
@@ -701,6 +938,45 @@ class Board3DManager implements IBoard3D {
     // Purple for cross-timeline moves
     const color = 0xaa44ff;
     this.branchLineGroup.add(Board3DManager._glowTube(from, to, color, 0.03, 0.12, true));
+  }
+
+  /** Add a time travel line showing queen moving backward in time to create new timeline */
+  addTimeTravelLine(
+    sourceTlId: number,
+    targetTurnIndex: number,
+    newTlId: number,
+    square: string,
+    isWhite: boolean
+  ): void {
+    const sourceCol = this.timelineCols[sourceTlId];
+    const newCol = this.timelineCols[newTlId];
+    if (!sourceCol || !newCol || !this.branchLineGroup) return;
+
+    const pos = this._fromSq(square);
+    const sqX = pos.c - 3.5;
+    const sqZ = pos.r - 3.5;
+
+    // Line goes: source board (top) -> down through time -> across to new timeline
+    const sourceY = 0.3;  // Current board height
+    const targetY = -(targetTurnIndex + 1) * TimelineCol.LAYER_GAP + 0.2;  // Historical layer height
+
+    // Start point: queen's position on current source board
+    const start = new THREE.Vector3(sourceCol.xOffset + sqX, sourceY, sqZ);
+
+    // Mid point: same square but at the historical layer depth (in source timeline)
+    const mid = new THREE.Vector3(sourceCol.xOffset + sqX, targetY, sqZ);
+
+    // End point: the new timeline's current board (where queen arrived)
+    const end = new THREE.Vector3(newCol.xOffset + sqX, 0.3, sqZ);
+
+    // Cyan-green for time travel
+    const color = 0x44ffaa;
+
+    // Vertical line down through time
+    this.branchLineGroup.add(Board3DManager._glowTube(start, mid, color, 0.03, 0.12, false));
+
+    // Horizontal/arc line to new timeline
+    this.branchLineGroup.add(Board3DManager._glowTube(mid, end, color, 0.03, 0.12, true));
   }
 
   private _fromSq(sq: string): { r: number; c: number } {
@@ -878,7 +1154,8 @@ class Board3DManager implements IBoard3D {
     color: number,
     coreR: number,
     glowR: number,
-    arc: boolean
+    arc: boolean,
+    opacityScale: number = 1.0
   ): Group {
     const group = new THREE.Group();
     let curve: Curve<Vector3>;
@@ -903,7 +1180,7 @@ class Board3DManager implements IBoard3D {
         new THREE.MeshBasicMaterial({
           color,
           transparent: true,
-          opacity: 0.1,
+          opacity: 0.1 * opacityScale,
           blending: THREE.AdditiveBlending,
           side: THREE.DoubleSide,
           depthWrite: false,
@@ -916,7 +1193,7 @@ class Board3DManager implements IBoard3D {
         new THREE.MeshBasicMaterial({
           color,
           transparent: true,
-          opacity: 0.22,
+          opacity: 0.22 * opacityScale,
           blending: THREE.AdditiveBlending,
           side: THREE.DoubleSide,
           depthWrite: false,
@@ -929,7 +1206,7 @@ class Board3DManager implements IBoard3D {
         new THREE.MeshBasicMaterial({
           color: 0xffffff,
           transparent: true,
-          opacity: 0.75,
+          opacity: 0.75 * opacityScale,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
         })
@@ -940,7 +1217,7 @@ class Board3DManager implements IBoard3D {
     const sm = new THREE.MeshBasicMaterial({
       color,
       transparent: true,
-      opacity: 0.6,
+      opacity: 0.6 * opacityScale,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
@@ -977,8 +1254,8 @@ class Board3DManager implements IBoard3D {
     }
   }
 
-  private _updatePanning(): void {
-    if (!this._panKeys || !this.camera || !this.controls) return;
+  private _updatePanning(): boolean {
+    if (!this._panKeys || !this.camera || !this.controls) return false;
 
     let panX = 0;
     let panZ = 0;
@@ -987,18 +1264,23 @@ class Board3DManager implements IBoard3D {
     if (this._panKeys.a) panX -= this._panSpeed;
     if (this._panKeys.d) panX += this._panSpeed;
 
+    let isPanning = false;
+
     if (panX !== 0 || panZ !== 0) {
-      // Get camera's forward and right vectors projected onto XZ plane
-      const forward = new THREE.Vector3();
+      isPanning = true;
+      // Use pooled vectors to avoid GC churn
+      const forward = this._tempVec3A;
       this.camera.getWorldDirection(forward);
       forward.y = 0;
       forward.normalize();
 
-      const right = new THREE.Vector3();
-      right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+      const right = this._tempVec3B;
+      right.set(0, 1, 0);
+      right.crossVectors(forward, right).normalize();
 
-      // Calculate movement
-      const move = new THREE.Vector3();
+      // Calculate movement using pooled vector
+      const move = this._tempVec3C;
+      move.set(0, 0, 0);
       move.addScaledVector(forward, -panZ);
       move.addScaledVector(right, panX);
 
@@ -1007,21 +1289,31 @@ class Board3DManager implements IBoard3D {
       this.controls.target.add(move);
     }
 
-    // Q/E keyboard zoom
+    // Q/E keyboard rotation (slow orbit around target)
     if (this._panKeys.q || this._panKeys.e) {
-      const zoomDir = this._panKeys.e ? -1 : 1; // E = zoom in, Q = zoom out
-      const direction = new THREE.Vector3();
-      direction.subVectors(this.camera.position, this.controls.target).normalize();
+      isPanning = true;
+      const rotateDir = this._panKeys.q ? 1 : -1; // Q = rotate left, E = rotate right
+      const rotateSpeed = 0.015; // Slow rotation
 
-      const distance = this.camera.position.distanceTo(this.controls.target);
-      const zoomAmount = this._zoomSpeed * zoomDir;
+      // Use pooled vector for offset
+      const offset = this._tempVec3A;
+      offset.subVectors(this.camera.position, this.controls.target);
 
-      // Respect min/max distance
-      const newDistance = distance + zoomAmount;
-      if (newDistance >= this.controls.minDistance && newDistance <= this.controls.maxDistance) {
-        this.camera.position.addScaledVector(direction, zoomAmount);
-      }
+      // Rotate around Y axis
+      const angle = rotateDir * rotateSpeed;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const newX = offset.x * cos - offset.z * sin;
+      const newZ = offset.x * sin + offset.z * cos;
+
+      offset.x = newX;
+      offset.z = newZ;
+
+      // Apply new position
+      this.camera.position.copy(this.controls.target).add(offset);
     }
+
+    return isPanning;
   }
 
   /* click -> find which timeline + square (or history square) */
@@ -1104,14 +1396,35 @@ class Board3DManager implements IBoard3D {
 
     const t = this._clock.getElapsedTime();
 
-    // Update WASD panning
-    this._updatePanning();
+    // FPS tracking
+    this._frameCount++;
+    if (t - this._lastFpsUpdate >= 1.0) {
+      this._currentFps = this._frameCount;
+      this._frameCount = 0;
+      this._lastFpsUpdate = t;
+      this._updateFpsDisplay();
+    }
+
+    // Update WASD panning (marks dirty if moving)
+    const wasPanning = this._updatePanning();
+    if (wasPanning) this._needsRender = true;
 
     // Update focus animation
-    this._updateFocusAnimation();
+    if (this._focusTween) {
+      this._updateFocusAnimation();
+      this._needsRender = true;
+    }
 
+    // Update visual effects
+    if (this._activeEffects.length > 0) {
+      this._updateEffects();
+      this._needsRender = true;
+    }
+
+    // Controls damping requires constant updates
     this.controls.update();
 
+    // Particle animation (runs always for ambient effect, but lightweight)
     if (this.particleSystem) {
       const pa = (this.particleSystem.geometry.attributes.position as BufferAttribute)
         .array as Float32Array;
@@ -1122,26 +1435,148 @@ class Board3DManager implements IBoard3D {
       this.particleSystem.rotation.y = t * 0.006;
     }
 
-    // Pulse branch lines
-    const pulse = 0.7 + 0.3 * Math.sin(t * 2);
-    this.branchLineGroup?.traverse((child: Object3D) => {
-      const mesh = child as Mesh;
-      if (mesh.isMesh && mesh.material && (mesh.material as Material).opacity <= 0.12) {
-        (mesh.material as Material).opacity = 0.1 * pulse;
-      }
-    });
-
-    // Pulse inter-layer lines per timeline
-    for (const key in this.timelineCols) {
-      this.timelineCols[key].interLayerGroup.traverse((child: Object3D) => {
+    // Pulse effects only need render every ~100ms, not every frame
+    const shouldPulse = t - this._lastRenderTime > 0.1;
+    if (shouldPulse && (this.branchLineGroup?.children.length || Object.keys(this.timelineCols).length > 0)) {
+      const pulse = 0.7 + 0.3 * Math.sin(t * 2);
+      this.branchLineGroup?.traverse((child: Object3D) => {
         const mesh = child as Mesh;
         if (mesh.isMesh && mesh.material && (mesh.material as Material).opacity <= 0.12) {
           (mesh.material as Material).opacity = 0.1 * pulse;
         }
       });
+
+      // Pulse inter-layer lines per timeline
+      for (const key in this.timelineCols) {
+        this.timelineCols[key].interLayerGroup.traverse((child: Object3D) => {
+          const mesh = child as Mesh;
+          if (mesh.isMesh && mesh.material && (mesh.material as Material).opacity <= 0.12) {
+            (mesh.material as Material).opacity = 0.1 * pulse;
+          }
+        });
+      }
+      this._needsRender = true;
     }
 
+    // Only render if something changed or we have active animations
+    // For now, always render but track FPS - can make this stricter later
     this.renderer.render(this.scene, this.camera);
+    this._lastRenderTime = t;
+    this._needsRender = false;
+  }
+
+  /** Update FPS display in UI */
+  private _updateFpsDisplay(): void {
+    const fpsEl = document.getElementById('fps-counter');
+    if (fpsEl) {
+      fpsEl.textContent = `${this._currentFps} FPS`;
+    }
+  }
+
+  /** Create portal effect at a position (cyan-purple burst) */
+  spawnPortalEffect(timelineId: number, square: string): void {
+    if (!this.scene || !this._clock) return;
+    const col = this.timelineCols[timelineId];
+    if (!col) return;
+
+    const pos = this._squareToWorld(col.xOffset, square);
+
+    // Create a ring of particles expanding outward
+    const geo = new THREE.RingGeometry(0.1, 0.5, 16);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x44ffcc,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+    });
+    const ring = new THREE.Mesh(geo, mat);
+    ring.position.set(pos.x, 0.3, pos.z);
+    ring.rotation.x = -Math.PI / 2;
+    this.scene.add(ring);
+
+    this._activeEffects.push({
+      mesh: ring,
+      startTime: this._clock.getElapsedTime(),
+      duration: 0.5,
+      type: 'portal',
+    });
+  }
+
+  /** Create capture effect at a position (red flash) */
+  spawnCaptureEffect(timelineId: number, square: string): void {
+    if (!this.scene || !this._clock) return;
+    const col = this.timelineCols[timelineId];
+    if (!col) return;
+
+    const pos = this._squareToWorld(col.xOffset, square);
+
+    // Create a flash sphere
+    const geo = new THREE.SphereGeometry(0.3, 8, 8);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xff4444,
+      transparent: true,
+      opacity: 0.8,
+    });
+    const sphere = new THREE.Mesh(geo, mat);
+    sphere.position.set(pos.x, 0.4, pos.z);
+    this.scene.add(sphere);
+
+    this._activeEffects.push({
+      mesh: sphere,
+      startTime: this._clock.getElapsedTime(),
+      duration: 0.3,
+      type: 'capture',
+    });
+  }
+
+  /** Convert square notation to world position */
+  private _squareToWorld(xOffset: number, square: string): { x: number; z: number } {
+    const c = square.charCodeAt(0) - 97; // a=0, h=7
+    const r = 8 - parseInt(square[1]);   // 8=0, 1=7
+    return {
+      x: xOffset + c - 3.5,
+      z: r - 3.5,
+    };
+  }
+
+  /** Update visual effects (called in animate loop) */
+  private _updateEffects(): void {
+    if (!this._clock || !this.scene) return;
+    const t = this._clock.getElapsedTime();
+
+    for (let i = this._activeEffects.length - 1; i >= 0; i--) {
+      const eff = this._activeEffects[i];
+      const elapsed = t - eff.startTime;
+      const progress = elapsed / eff.duration;
+
+      if (progress >= 1) {
+        // Remove finished effect
+        this.scene.remove(eff.mesh);
+        eff.mesh.geometry?.dispose();
+        if (eff.mesh.material) {
+          if (Array.isArray(eff.mesh.material)) {
+            eff.mesh.material.forEach(m => m.dispose());
+          } else {
+            (eff.mesh.material as Material).dispose();
+          }
+        }
+        this._activeEffects.splice(i, 1);
+        continue;
+      }
+
+      // Animate based on type
+      if (eff.type === 'portal') {
+        // Expand ring outward and fade
+        const scale = 1 + progress * 2;
+        eff.mesh.scale.set(scale, scale, 1);
+        ((eff.mesh as Mesh).material as MeshStandardMaterial).opacity = 0.9 * (1 - progress);
+      } else if (eff.type === 'capture') {
+        // Expand sphere and fade quickly
+        const scale = 1 + progress * 1.5;
+        eff.mesh.scale.set(scale, scale, scale);
+        ((eff.mesh as Mesh).material as MeshStandardMaterial).opacity = 0.8 * (1 - progress);
+      }
+    }
   }
 
   clearAll(): void {

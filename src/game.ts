@@ -17,6 +17,8 @@ import type {
   CrossTimelineMove,
   CrossTimelineMoveTarget,
   CrossTimelineSelection,
+  TimeTravelTarget,
+  TimeTravelSelection,
   Square,
 } from './types';
 
@@ -32,6 +34,9 @@ class GameManager {
   // Cross-timeline movement state
   private crossTimelineSelection: CrossTimelineSelection | null = null;
 
+  // Time travel movement state (queen moving backward in time)
+  private timeTravelSelection: TimeTravelSelection | null = null;
+
   init(): void {
     Board3D.init('scene-container', (info) => this.handleClick(info));
 
@@ -40,11 +45,20 @@ class GameManager {
       resetBtn.addEventListener('click', () => this.reset());
     }
 
+    // Setup CPU controls
+    this._setupCpuControls();
+
     // Setup keyboard navigation
     this._setupKeyboardNav();
 
     // Setup move slider
     this._setupMoveSlider();
+
+    // Setup command input for programmatic testing
+    this._setupCommandInput();
+
+    // Setup sidebar resize
+    this._setupSidebarResize();
 
     // Create the main timeline
     this._createTimeline(0, 0, null, -1, null);
@@ -52,6 +66,9 @@ class GameManager {
     this.renderTimeline(0);
     this.updateStatus();
     this.updateTimelineList();
+
+    // Setup collapsible shortcuts panel
+    this._setupCollapsibleShortcuts();
   }
 
   /* -- Keyboard Navigation -- */
@@ -124,6 +141,255 @@ class GameManager {
         this.goToMove(parseInt(slider.value));
       });
     }
+  }
+
+  /* -- CPU Controls -- */
+  private _setupCpuControls(): void {
+    const cpuToggle = document.getElementById('cpu-toggle');
+    if (cpuToggle) {
+      cpuToggle.addEventListener('click', () => this.cpuToggle());
+    }
+
+    const speedSlider = document.getElementById('cpu-speed') as HTMLInputElement | null;
+    if (speedSlider) {
+      speedSlider.addEventListener('input', () => {
+        // Invert: slider shows 100-2000, but we want higher slider = faster (lower delay)
+        // So delay = 2100 - sliderValue (100->2000, 2000->100)
+        const sliderVal = parseInt(speedSlider.value);
+        this.cpuSetDelay(2100 - sliderVal);
+      });
+    }
+
+    const cameraToggle = document.getElementById('cpu-camera-toggle');
+    if (cameraToggle) {
+      cameraToggle.addEventListener('click', () => {
+        this.cpuCameraFollow = !this.cpuCameraFollow;
+        this._updateCpuUI();
+      });
+    }
+
+    // White CPU controls
+    const whiteToggle = document.getElementById('cpu-white-toggle');
+    if (whiteToggle) {
+      whiteToggle.addEventListener('click', () => {
+        this.cpuWhiteEnabled = !this.cpuWhiteEnabled;
+        this._updateCpuUI();
+      });
+    }
+
+    // Per-piece portal sliders for white
+    const pieceTypes = ['q', 'r', 'b', 'n'] as const;
+    for (const pt of pieceTypes) {
+      const slider = document.getElementById(`cpu-white-portal-${pt}`) as HTMLInputElement | null;
+      if (slider) {
+        slider.addEventListener('input', () => {
+          this.cpuWhitePortalBias[pt] = parseInt(slider.value) / 100;
+        });
+      }
+    }
+
+    const whiteCapture = document.getElementById('cpu-white-capture') as HTMLInputElement | null;
+    if (whiteCapture) {
+      whiteCapture.addEventListener('input', () => {
+        this.cpuSetWhiteCapturePreference(parseInt(whiteCapture.value) / 100);
+      });
+    }
+
+    // Black CPU controls
+    const blackToggle = document.getElementById('cpu-black-toggle');
+    if (blackToggle) {
+      blackToggle.addEventListener('click', () => {
+        this.cpuBlackEnabled = !this.cpuBlackEnabled;
+        this._updateCpuUI();
+      });
+    }
+
+    // Per-piece portal sliders for black
+    for (const pt of pieceTypes) {
+      const slider = document.getElementById(`cpu-black-portal-${pt}`) as HTMLInputElement | null;
+      if (slider) {
+        slider.addEventListener('input', () => {
+          this.cpuBlackPortalBias[pt] = parseInt(slider.value) / 100;
+        });
+      }
+    }
+
+    const blackCapture = document.getElementById('cpu-black-capture') as HTMLInputElement | null;
+    if (blackCapture) {
+      blackCapture.addEventListener('input', () => {
+        this.cpuSetBlackCapturePreference(parseInt(blackCapture.value) / 100);
+      });
+    }
+
+    // Disable camera follow when user pans manually
+    const sceneContainer = document.getElementById('scene-container');
+    if (sceneContainer) {
+      sceneContainer.addEventListener('pointerdown', () => {
+        if (this.cpuEnabled && this.cpuCameraFollow) {
+          this.cpuCameraFollow = false;
+          this._updateCpuUI();
+        }
+      });
+    }
+  }
+
+  /* -- Command Input for Programmatic Testing -- */
+  private _setupCommandInput(): void {
+    const input = document.getElementById('command-input') as HTMLInputElement | null;
+    const output = document.getElementById('command-output');
+    if (!input || !output) return;
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const cmd = input.value.trim().toLowerCase();
+        const result = this._executeCommand(cmd);
+        output.textContent = result.message;
+        output.classList.add('visible');
+        output.classList.toggle('error', !result.success);
+        if (result.success) {
+          input.value = '';
+        }
+      }
+    });
+  }
+
+  /* -- Sidebar Resize -- */
+  private _setupSidebarResize(): void {
+    const sidebar = document.getElementById('sidebar');
+    const resizeHandle = document.getElementById('sidebar-resize');
+    if (!sidebar || !resizeHandle) return;
+
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    resizeHandle.addEventListener('mousedown', (e: MouseEvent) => {
+      isResizing = true;
+      startX = e.clientX;
+      startWidth = sidebar.offsetWidth;
+      resizeHandle.classList.add('dragging');
+      document.body.style.cursor = 'ew-resize';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e: MouseEvent) => {
+      if (!isResizing) return;
+      const diff = startX - e.clientX; // Negative because sidebar is on right
+      // Constrain to sensible limits based on viewport
+      const maxWidth = Math.min(500, window.innerWidth * 0.5);
+      const minWidth = 180;
+      const newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth + diff));
+      sidebar.style.width = newWidth + 'px';
+      sidebar.style.minWidth = newWidth + 'px';
+      sidebar.style.maxWidth = newWidth + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isResizing) {
+        isResizing = false;
+        resizeHandle.classList.remove('dragging');
+        document.body.style.cursor = '';
+      }
+    });
+  }
+
+  private _executeCommand(cmd: string): { success: boolean; message: string } {
+    const tl = this.timelines[this.activeTimelineId];
+    if (!tl) return { success: false, message: 'No active timeline' };
+
+    // help command
+    if (cmd === 'help') {
+      return {
+        success: true,
+        message: `Commands:
+e2e4 - make move (from-to)
+fen - show current FEN
+select e2 - select square
+timetravel N - travel to turn N
+switch N - switch to timeline N
+reset - new game
+timelines - list timelines`,
+      };
+    }
+
+    // fen command
+    if (cmd === 'fen') {
+      return { success: true, message: tl.chess.fen() };
+    }
+
+    // reset command
+    if (cmd === 'reset') {
+      this.reset();
+      return { success: true, message: 'Game reset' };
+    }
+
+    // timelines command
+    if (cmd === 'timelines') {
+      const tlList = Object.keys(this.timelines).map(id => {
+        const t = this.timelines[parseInt(id)];
+        return `${id}: ${t.name} (${t.moveHistory.length} moves)`;
+      }).join('\n');
+      return { success: true, message: tlList };
+    }
+
+    // switch N command
+    const switchMatch = cmd.match(/^switch\s+(\d+)$/);
+    if (switchMatch) {
+      const tlId = parseInt(switchMatch[1]);
+      if (this.timelines[tlId]) {
+        this.setActiveTimeline(tlId);
+        return { success: true, message: `Switched to timeline ${tlId}` };
+      }
+      return { success: false, message: `Timeline ${tlId} not found` };
+    }
+
+    // select SQ command
+    const selectMatch = cmd.match(/^select\s+([a-h][1-8])$/);
+    if (selectMatch) {
+      const sq = selectMatch[1];
+      this._handleBoardClick(this.activeTimelineId, sq);
+      return { success: true, message: `Selected ${sq}` };
+    }
+
+    // timetravel N command
+    const ttMatch = cmd.match(/^timetravel\s+(\d+)$/);
+    if (ttMatch) {
+      const turnIdx = parseInt(ttMatch[1]);
+      if (!this.timeTravelSelection) {
+        return { success: false, message: 'Select a queen first with time travel targets' };
+      }
+      const target = this.timeTravelSelection.validTargets.find(t => t.targetTurnIndex === turnIdx);
+      if (!target) {
+        return { success: false, message: `No time travel target at turn ${turnIdx}` };
+      }
+      this._makeTimeTravelMove(
+        this.timeTravelSelection.sourceTimelineId,
+        this.timeTravelSelection.sourceSquare,
+        target.targetTurnIndex,
+        this.timeTravelSelection.piece,
+        target.isCapture ? target.capturedPiece : null
+      );
+      return { success: true, message: `Time traveled to turn ${turnIdx}` };
+    }
+
+    // move command (e2e4 format)
+    const moveMatch = cmd.match(/^([a-h][1-8])([a-h][1-8])([qrbn])?$/);
+    if (moveMatch) {
+      const from = moveMatch[1];
+      const to = moveMatch[2];
+      const promotion = moveMatch[3] as PieceType | undefined;
+
+      const moves = tl.chess.moves({ verbose: true }) as ChessMove[];
+      const move = moves.find(m => m.from === from && m.to === to);
+      if (!move) {
+        return { success: false, message: `Invalid move: ${from}-${to}` };
+      }
+      this.makeMove(this.activeTimelineId, move, promotion);
+      return { success: true, message: `Moved ${from}-${to}` };
+    }
+
+    return { success: false, message: `Unknown command: ${cmd}. Type 'help' for commands.` };
   }
 
   private _updateMoveSlider(): void {
@@ -264,7 +530,13 @@ class GameManager {
   ): TimelineData {
     let chess: ChessInstance;
     if (initialFen) {
-      chess = new Chess(initialFen);
+      chess = new Chess();
+      const loaded = chess.load(initialFen);
+      if (!loaded) {
+        console.error('[_createTimeline] Failed to load FEN:', initialFen);
+        // Fallback to starting position
+        chess = new Chess();
+      }
     } else {
       chess = new Chess();
     }
@@ -293,7 +565,7 @@ class GameManager {
     return this.timelines[id];
   }
 
-  setActiveTimeline(id: number): void {
+  setActiveTimeline(id: number, autoFocus: boolean = true): void {
     const previousId = this.activeTimelineId;
     this.activeTimelineId = id;
     this.viewingMoveIndex = null; // Reset to current position when switching timelines
@@ -302,10 +574,13 @@ class GameManager {
     this.updateStatus();
     this.updateMoveList();
     this.updateTimelineList();
+
+    // Setup collapsible shortcuts panel
+    this._setupCollapsibleShortcuts();
     this._updateMoveSlider();
 
-    // Auto-focus on the new timeline with animation (if switching timelines)
-    if (previousId !== id) {
+    // Auto-focus on the new timeline with animation (if switching timelines and autoFocus enabled)
+    if (autoFocus && previousId !== id) {
       Board3D.focusTimeline(id, true);
     }
   }
@@ -317,7 +592,25 @@ class GameManager {
     const isHistory = info.isHistory;
     const turn = info.turn;
 
-    // Clicking on a history board -> potential fork
+    // Check for time travel portal click (clicking history board with time travel active)
+    if (isHistory && this.timeTravelSelection) {
+      const target = this.timeTravelSelection.validTargets.find(
+        (t) => t.sourceTimelineId === tlId && t.targetTurnIndex === turn && t.targetSquare === sq
+      );
+      if (target) {
+        // Execute time travel move!
+        this._makeTimeTravelMove(
+          this.timeTravelSelection.sourceTimelineId,
+          this.timeTravelSelection.sourceSquare,
+          target.targetTurnIndex,
+          this.timeTravelSelection.piece,
+          target.isCapture ? target.capturedPiece : null
+        );
+        return;
+      }
+    }
+
+    // Clicking on a history board without valid time travel target -> do nothing
     if (isHistory) {
       this._handleHistoryClick(tlId, turn, sq);
       return;
@@ -339,6 +632,8 @@ class GameManager {
         );
         return;
       }
+      // Clicked on a different timeline but not a valid target - clear selection
+      this.clearSelection();
     }
 
     // Clicking on a non-active timeline's current board -> switch to it
@@ -401,6 +696,19 @@ class GameManager {
           // Show cross-timeline targets in other timelines
           this._showCrossTimelineTargets(crossTargets);
         }
+
+        // Check for time travel capability (queen moving backward in time)
+        const timeTravelTargets = this._getTimeTravelTargets(tlId, sq as Square, piece);
+        if (timeTravelTargets.length > 0) {
+          this.timeTravelSelection = {
+            sourceTimelineId: tlId,
+            sourceSquare: sq as Square,
+            piece,
+            validTargets: timeTravelTargets,
+          };
+          // Show time travel portal targets on history boards
+          this._showTimeTravelTargets(timeTravelTargets);
+        }
       }
     } else {
       this.clearSelection();
@@ -408,35 +716,10 @@ class GameManager {
   }
 
   private _handleHistoryClick(tlId: number, turnIndex: number, sq: string): void {
-    const tl = this.timelines[tlId];
-    if (!tl) return;
-
-    // Get the board state at that turn
-    // turnIndex 0 = most recent history, which is snapshot at (total snapshots - 2)
-    const snapshotIdx = tl.snapshots.length - 2 - turnIndex;
-    if (snapshotIdx < 0) return;
-
-    const snapshot = tl.snapshots[snapshotIdx];
-    if (!snapshot) return;
-
-    // Check if there's a piece belonging to current turn player
-    const pos = this._fromSq(sq);
-    const board = this._getSnapshotBoard(snapshot);
-    const piece = board[pos.r][pos.c];
-    if (!piece) return;
-
-    // Determine whose turn it was at that snapshot
-    // Try to get turn from FEN first (accurate for nested forks)
-    let turnColor = this._getSnapshotTurn(snapshot);
-    if (!turnColor) {
-      // Fallback for old snapshots without FEN: use index parity
-      // (This is less accurate for nested forks but maintains backward compat)
-      turnColor = snapshotIdx % 2 === 0 ? 'w' : 'b';
-    }
-    if (piece.color !== turnColor) return;
-
-    // Fork! Create a new timeline from this point
-    this._forkTimeline(tlId, snapshotIdx, sq);
+    // History boards are read-only views
+    // Timeline forking only happens via queen time travel moves
+    // (clicking a time travel portal target, not directly clicking history)
+    return;
   }
 
   private _forkTimeline(parentTlId: number, snapshotIdx: number, selectedSq: string): void {
@@ -510,8 +793,9 @@ class GameManager {
       newId
     );
 
-    // Switch to the new timeline
-    this.setActiveTimeline(newId);
+    // Switch to the new timeline (respect camera follow setting for CPU mode)
+    const shouldFocus = !this.cpuEnabled || this.cpuCameraFollow;
+    this.setActiveTimeline(newId, shouldFocus);
     this.renderTimeline(newId);
 
     // Auto-select the piece on the new timeline
@@ -525,6 +809,9 @@ class GameManager {
     }
 
     this.updateTimelineList();
+
+    // Setup collapsible shortcuts panel
+    this._setupCollapsibleShortcuts();
   }
 
   /* -- Move execution -- */
@@ -582,11 +869,19 @@ class GameManager {
       col.showLastMove(move.from, move.to);
     }
 
+    // Spawn capture effect if this was a capture
+    if (move.captured) {
+      Board3D.spawnCaptureEffect(tlId, move.to);
+    }
+
     this.clearSelection();
     this.renderTimeline(tlId);
     this.updateStatus();
     this.updateMoveList();
     this.updateTimelineList();
+
+    // Setup collapsible shortcuts panel
+    this._setupCollapsibleShortcuts();
     this._updateMoveSlider();
   }
 
@@ -635,6 +930,9 @@ class GameManager {
       // Can't move if own piece is there
       if (targetPiece && targetPiece.color === sourceColor) continue;
 
+      // CANNOT capture kings - that would break the game
+      if (targetPiece && targetPiece.type === 'k') continue;
+
       // Valid target!
       targets.push({
         targetTimelineId: tlId,
@@ -682,26 +980,28 @@ class GameManager {
     targetTl.chess.load(newTargetFen);
 
     // 3. Record the move in both timelines
+    // Use actual piece character (not hardcoded Q) for future extensibility
+    const pieceChar = piece.type.toUpperCase();
     const crossMove: Move = {
       from: square,
       to: square,
       piece: piece.type,
       captured: targetPiece?.type || null,
-      san: `Q${square}→T${targetTimelineId}`,  // Custom notation for cross-timeline
+      san: `${pieceChar}${square}→T${targetTimelineId}`,  // Custom notation for cross-timeline
       isWhite,
     };
 
     // Source timeline: piece left
     sourceTl.moveHistory.push({
       ...crossMove,
-      san: `Q${square}→T${targetTimelineId}`,
+      san: `${pieceChar}${square}→T${targetTimelineId}`,
     });
     sourceTl.snapshots.push(this._cloneBoard(sourceTl.chess));
 
     // Target timeline: piece arrived (possibly captured)
     targetTl.moveHistory.push({
       ...crossMove,
-      san: `Q${square}←T${sourceTimelineId}`,
+      san: `${pieceChar}${square}←T${sourceTimelineId}`,
     });
     targetTl.snapshots.push(this._cloneBoard(targetTl.chess));
 
@@ -729,10 +1029,261 @@ class GameManager {
     this.updateStatus();
     this.updateMoveList();
     this.updateTimelineList();
+
+    // Setup collapsible shortcuts panel
+    this._setupCollapsibleShortcuts();
     this._updateMoveSlider();
   }
 
-  /** Helper: Modify a FEN string to change a square's piece and flip turn */
+  /* -- Time Travel Movement (backward in time) -- */
+
+  /** Get all valid time travel targets for a piece (moving backward in time) */
+  private _getTimeTravelTargets(
+    sourceTimelineId: number,
+    square: Square,
+    piece: Piece
+  ): TimeTravelTarget[] {
+    // Queens, Rooks, Bishops, and Knights can time travel
+    const canTimeTravel = ['q', 'r', 'b', 'n'].includes(piece.type);
+    if (!canTimeTravel) return [];
+
+    const tl = this.timelines[sourceTimelineId];
+    if (!tl) return [];
+
+    // Need at least 2 snapshots (initial + at least 1 move) for time travel
+    if (tl.snapshots.length < 2) return [];
+
+    const targets: TimeTravelTarget[] = [];
+
+    // Queen can travel to any previous board state where:
+    // 1. The same square is empty OR occupied by enemy piece
+    // 2. The snapshot represents a past state (not the current board)
+    // We iterate snapshots from most recent to oldest (excluding current)
+    for (let snapshotIdx = tl.snapshots.length - 2; snapshotIdx >= 0; snapshotIdx--) {
+      const snapshot = tl.snapshots[snapshotIdx];
+      const board = this._getSnapshotBoard(snapshot);
+      const pos = this._fromSq(square);
+      const targetPiece = board[pos.r][pos.c];
+
+      // Can arrive if square is empty or has enemy piece (capture)
+      // CANNOT capture kings - that would break the game
+      if (!targetPiece || (targetPiece.color !== piece.color && targetPiece.type !== 'k')) {
+        // turnIndex is relative to history layers (0 = most recent history)
+        // Snapshot index 0 is initial state, snapshot length-1 is current
+        // History layer 0 = snapshot at (length - 2), layer 1 = snapshot at (length - 3), etc.
+        const turnIndex = tl.snapshots.length - 2 - snapshotIdx;
+        targets.push({
+          sourceTimelineId,
+          targetTurnIndex: turnIndex,
+          targetSquare: square,
+          isCapture: targetPiece !== null,
+          capturedPiece: targetPiece,
+        });
+      }
+    }
+
+    return targets;
+  }
+
+  /** Execute a time travel move - piece goes back in time, creating a new timeline */
+  private _makeTimeTravelMove(
+    sourceTimelineId: number,
+    sourceSquare: Square,
+    targetTurnIndex: number,
+    piece: Piece,
+    capturedPiece: Piece | null | undefined
+  ): void {
+    const sourceTl = this.timelines[sourceTimelineId];
+    if (!sourceTl) return;
+
+    const isWhite = piece.color === 'w';
+
+    // Convert turnIndex to snapshot index
+    // turnIndex 0 = snapshot at (length - 2), turnIndex 1 = snapshot at (length - 3), etc.
+    const snapshotIdx = sourceTl.snapshots.length - 2 - targetTurnIndex;
+    if (snapshotIdx < 0) return;
+
+    const targetSnapshot = sourceTl.snapshots[snapshotIdx];
+    if (!targetSnapshot) return;
+
+    // Get FEN at target historical point
+    let fen = this._getSnapshotFen(targetSnapshot);
+    console.log('[Time Travel] snapshotIdx:', snapshotIdx);
+    console.log('[Time Travel] targetSnapshot:', JSON.stringify(targetSnapshot).slice(0, 200));
+    console.log('[Time Travel] FEN from snapshot:', fen);
+
+    if (!fen) {
+      console.log('[Time Travel] No FEN in snapshot, rebuilding from moves...');
+      // Fallback: Rebuild FEN by replaying moves (for old snapshots)
+      const forkChess = new Chess();
+      for (let i = 0; i < snapshotIdx; i++) {
+        if (i < sourceTl.moveHistory.length) {
+          const histMove = sourceTl.moveHistory[i];
+          const moveResult = forkChess.move({ from: histMove.from, to: histMove.to, promotion: histMove.promotion || undefined });
+          if (!moveResult) {
+            console.error('[Time Travel] Failed to replay move:', histMove);
+          }
+        }
+      }
+      fen = forkChess.fen();
+      console.log('[Time Travel] Rebuilt FEN:', fen);
+    }
+
+    if (!fen) {
+      console.error('[Time Travel] Could not get FEN! Aborting time travel.');
+      return;
+    }
+
+    // Clone board before we modify source timeline
+    const sourceBoardBefore = this._cloneBoard(sourceTl.chess);
+
+    // 1. Remove piece from source timeline (it traveled away)
+    const sourceFen = sourceTl.chess.fen();
+    const newSourceFen = this._modifyFen(sourceFen, sourceSquare, null, !isWhite);
+    sourceTl.chess.load(newSourceFen);
+
+    // Record the departure move on source timeline
+    const pieceChar = piece.type.toUpperCase();
+    sourceTl.moveHistory.push({
+      from: sourceSquare,
+      to: sourceSquare,
+      piece: piece.type,
+      captured: null,
+      san: `${pieceChar}${sourceSquare}⟳T${targetTurnIndex}`,  // Time travel notation
+      isWhite,
+    });
+    sourceTl.snapshots.push(this._cloneBoard(sourceTl.chess));
+
+    // Update source timeline visual
+    const sourceCol = Board3D.getTimeline(sourceTimelineId);
+    if (sourceCol) {
+      sourceCol.addSnapshot(this._getSnapshotBoard(sourceBoardBefore), sourceSquare, sourceSquare, isWhite);
+      sourceCol.showLastMove(sourceSquare, sourceSquare);
+    }
+
+    // Spawn portal effect at departure point
+    Board3D.spawnPortalEffect(sourceTimelineId, sourceSquare);
+
+    // 2. Create a NEW timeline branching from that historical point
+    const newId = this.nextTimelineId++;
+
+    // Calculate x offset: alternate left/right of parent
+    const existingCount = Object.keys(this.timelines).length;
+    const side = existingCount % 2 === 0 ? 1 : -1;
+    const xOffset = sourceTl.xOffset + side * Board3D.TIMELINE_SPACING * Math.ceil(existingCount / 2);
+
+    console.log('[Time Travel] Creating new timeline:', {
+      originalFen: fen,
+      sourceSquare,
+      piece,
+      snapshotIdx,
+    });
+
+    // Create the new timeline with the ORIGINAL historical FEN
+    // (We'll add the time-traveled piece manually to allow extra queens)
+    const newTl = this._createTimeline(newId, xOffset, sourceTimelineId, snapshotIdx, fen);
+
+    // Now manually place the time-traveled piece using chess.put()
+    // This bypasses validation that would reject multiple queens etc
+    const targetSquare = sourceSquare;  // Piece appears at same square, different time
+
+    // Remove any piece currently on target (capture)
+    const existingPiece = newTl.chess.get(targetSquare);
+    if (existingPiece) {
+      newTl.chess.remove(targetSquare);
+    }
+
+    // Place the time-traveled piece
+    const placed = newTl.chess.put(piece, targetSquare);
+    if (!placed) {
+      console.error('[Time Travel] Failed to place piece at', targetSquare, piece);
+    }
+
+    // Fix turn synchronization: After time travel arrival, it's the opponent's turn.
+    // We need to flip the turn in the FEN. Since chess.put() doesn't modify turn,
+    // we reload the FEN with the correct turn.
+    const currentFen = newTl.chess.fen();
+    const fenParts = currentFen.split(' ');
+    // After the time-traveling piece's color moves, it's the opponent's turn
+    fenParts[1] = isWhite ? 'b' : 'w';
+    // Reset en passant on new timeline (historical en passant no longer valid)
+    fenParts[3] = '-';
+    const fixedFen = fenParts.join(' ');
+    const loadResult = newTl.chess.load(fixedFen);
+    if (!loadResult) {
+      console.error('[Time Travel] Failed to load turn-fixed FEN:', fixedFen);
+    }
+
+    console.log('[Time Travel] New timeline chess state:', newTl.chess.fen());
+    console.log('[Time Travel] New timeline board:', newTl.chess.board());
+
+    // Copy snapshots up to the branch point
+    newTl.snapshots = [];
+    for (let s = 0; s <= snapshotIdx; s++) {
+      newTl.snapshots.push(this._deepCloneSnapshot(sourceTl.snapshots[s]));
+    }
+
+    // Add the arrival snapshot (queen now on this timeline)
+    newTl.snapshots.push(this._cloneBoard(newTl.chess));
+
+    // Record the time travel arrival as a move
+    newTl.moveHistory = [];
+    // Copy move history up to branch point
+    for (let m = 0; m < snapshotIdx; m++) {
+      if (m < sourceTl.moveHistory.length) {
+        newTl.moveHistory.push(JSON.parse(JSON.stringify(sourceTl.moveHistory[m])));
+      }
+    }
+    // Add the arrival move
+    newTl.moveHistory.push({
+      from: sourceSquare,
+      to: sourceSquare,
+      piece: piece.type,
+      captured: capturedPiece?.type || null,
+      san: `${pieceChar}${sourceSquare}⟳←T${sourceTimelineId}`,  // Arrived via time travel
+      isWhite,
+    });
+
+    // Add history layers to the new timeline visual
+    const newCol = Board3D.getTimeline(newId);
+    if (newCol) {
+      for (let h = newTl.moveHistory.length - 1; h >= 0; h--) {
+        const mv = newTl.moveHistory[h];
+        const boardBefore = this._getSnapshotBoard(newTl.snapshots[h]);
+        newCol.addSnapshot(boardBefore, mv.from, mv.to, mv.isWhite);
+      }
+    }
+
+    // 3. Add time travel connection line (vertical drop then horizontal)
+    Board3D.addTimeTravelLine(
+      sourceTimelineId,
+      targetTurnIndex,
+      newId,
+      sourceSquare,
+      isWhite
+    );
+
+    // 4. Switch to the new timeline (respect camera follow setting for CPU mode)
+    this.clearSelection();
+    const shouldFocus = !this.cpuEnabled || this.cpuCameraFollow;
+    this.setActiveTimeline(newId, shouldFocus);
+    this.renderTimeline(sourceTimelineId);
+    this.renderTimeline(newId);
+    this.updateTimelineList();
+    this._updateMoveSlider();
+
+    // Spawn portal effect at arrival point
+    Board3D.spawnPortalEffect(newId, sourceSquare);
+
+    // If captured a piece, also spawn capture effect
+    if (capturedPiece) {
+      Board3D.spawnCaptureEffect(newId, sourceSquare);
+    }
+  }
+
+  /** Helper: Modify a FEN string to change a square's piece and flip turn.
+   * Also updates castling rights and resets en passant for timeline consistency.
+   */
   private _modifyFen(fen: string, square: Square, newPiece: Piece | null, whiteToMove: boolean): string {
     const parts = fen.split(' ');
     const rows = parts[0].split('/');
@@ -771,7 +1322,17 @@ class GameManager {
     };
 
     // Modify the specific square
+    console.log('[_modifyFen] pos:', pos, 'rows:', rows, 'rows[pos.r]:', rows[pos.r]);
+    if (!rows[pos.r]) {
+      console.error('[_modifyFen] Invalid row index:', pos.r, 'FEN rows:', rows);
+      return fen;  // Return unchanged if invalid
+    }
     const rowArr = expandRow(rows[pos.r]);
+    console.log('[_modifyFen] expanded row:', rowArr);
+
+    // Track what piece was there before
+    const oldPieceChar = rowArr[pos.c];
+
     if (newPiece) {
       const pieceChar = newPiece.color === 'w'
         ? newPiece.type.toUpperCase()
@@ -782,11 +1343,75 @@ class GameManager {
     }
     rows[pos.r] = compressRow(rowArr);
 
-    // Flip turn
+    // Update board position
     parts[0] = rows.join('/');
+
+    // Flip turn
     parts[1] = whiteToMove ? 'w' : 'b';
 
-    return parts.join(' ');
+    // Update castling rights (parts[2]) - remove rights when rooks/kings move
+    let castling = parts[2] || '-';
+    if (castling !== '-') {
+      // If a rook or king is being removed (newPiece is null), update castling
+      if (!newPiece && oldPieceChar) {
+        const removedPiece = oldPieceChar.toLowerCase();
+        const isWhitePiece = oldPieceChar === oldPieceChar.toUpperCase();
+
+        if (removedPiece === 'k') {
+          // King removed - remove all castling rights for that color
+          if (isWhitePiece) {
+            castling = castling.replace(/[KQ]/g, '');
+          } else {
+            castling = castling.replace(/[kq]/g, '');
+          }
+        } else if (removedPiece === 'r') {
+          // Rook removed - check which corner
+          if (square === 'a1') castling = castling.replace('Q', '');
+          else if (square === 'h1') castling = castling.replace('K', '');
+          else if (square === 'a8') castling = castling.replace('q', '');
+          else if (square === 'h8') castling = castling.replace('k', '');
+        }
+      }
+      // If a piece is being placed on a rook square, also invalidate that castling
+      if (newPiece) {
+        if (square === 'a1') castling = castling.replace('Q', '');
+        else if (square === 'h1') castling = castling.replace('K', '');
+        else if (square === 'a8') castling = castling.replace('q', '');
+        else if (square === 'h8') castling = castling.replace('k', '');
+      }
+      if (castling === '') castling = '-';
+    }
+    parts[2] = castling;
+
+    // Always reset en passant on timeline branches/time travel
+    // (The historical en passant is no longer valid since a move was made)
+    parts[3] = '-';
+
+    // Reset halfmove clock if this was a capture (newPiece replaces something)
+    if (newPiece && oldPieceChar && oldPieceChar !== '') {
+      parts[4] = '0';
+    }
+
+    const result = parts.join(' ');
+
+    // Validate the result by trying to parse it
+    const testChess = new Chess();
+    const valid = testChess.load(result);
+    if (!valid) {
+      console.error('[_modifyFen] Generated invalid FEN!', {
+        input: fen,
+        output: result,
+        square,
+        newPiece,
+        pos,
+        rowArr,
+      });
+      // Return original FEN if we broke it
+      return fen;
+    }
+
+    console.log('[_modifyFen] Result:', { input: fen, output: result, square, newPiece, valid });
+    return result;
   }
 
   /* -- Promotion UI -- */
@@ -842,7 +1467,19 @@ class GameManager {
   renderTimeline(tlId: number): void {
     const tl = this.timelines[tlId];
     if (!tl) return;
-    Board3D.getTimeline(tlId)?.render(tl.chess.board());
+    const col = Board3D.getTimeline(tlId);
+    if (!col) return;
+
+    col.render(tl.chess.board());
+
+    // Update board glow based on game state
+    if (tl.chess.in_checkmate()) {
+      col.setBoardGlow('checkmate');
+    } else if (tl.chess.in_draw() || tl.chess.in_stalemate()) {
+      col.setBoardGlow('draw');
+    } else {
+      col.setBoardGlow('none');
+    }
   }
 
   clearSelection(): void {
@@ -854,6 +1491,11 @@ class GameManager {
     if (this.crossTimelineSelection) {
       this._clearCrossTimelineTargets();
       this.crossTimelineSelection = null;
+    }
+    // Clear time travel highlights
+    if (this.timeTravelSelection) {
+      this._clearTimeTravelTargets();
+      this.timeTravelSelection = null;
     }
     this.selected = null;
     this.selectedTimelineId = null;
@@ -876,6 +1518,27 @@ class GameManager {
       const col = Board3D.getTimeline(target.targetTimelineId);
       if (col) {
         col.clearCrossTimelineTargets();
+      }
+    }
+  }
+
+  /** Show time travel target indicators on history boards */
+  private _showTimeTravelTargets(targets: TimeTravelTarget[]): void {
+    for (const target of targets) {
+      const col = Board3D.getTimeline(target.sourceTimelineId);
+      if (col) {
+        col.showTimeTravelTarget(target.targetTurnIndex, target.targetSquare, target.isCapture);
+      }
+    }
+  }
+
+  /** Clear time travel target indicators */
+  private _clearTimeTravelTargets(): void {
+    if (!this.timeTravelSelection) return;
+    for (const target of this.timeTravelSelection.validTargets) {
+      const col = Board3D.getTimeline(target.sourceTimelineId);
+      if (col) {
+        col.clearTimeTravelTargets();
       }
     }
   }
@@ -981,6 +1644,36 @@ class GameManager {
       statusEl.textContent = prefix + turn + ' to move';
       statusEl.style.color = '#e0e0e0';
     }
+
+    // Update FEN display
+    this._updateFenDisplay();
+  }
+
+  private _updateFenDisplay(): void {
+    const fenText = document.getElementById('fen-text');
+    const fenTooltip = document.getElementById('fen-tooltip');
+    const fenDisplay = document.getElementById('fen-display');
+    if (!fenText || !fenTooltip || !fenDisplay) return;
+
+    const tl = this.timelines[this.activeTimelineId];
+    if (!tl) return;
+
+    const fen = tl.chess.fen();
+    fenText.textContent = fen;
+    fenTooltip.textContent = fen;
+
+    // Click to copy
+    fenDisplay.onclick = () => {
+      navigator.clipboard.writeText(fen).then(() => {
+        const original = fenTooltip.textContent;
+        fenTooltip.textContent = 'Copied!';
+        fenTooltip.style.color = '#6bc96b';
+        setTimeout(() => {
+          fenTooltip.textContent = original;
+          fenTooltip.style.color = '';
+        }, 1000);
+      });
+    };
   }
 
   updateMoveList(): void {
@@ -991,7 +1684,9 @@ class GameManager {
       movesEl.innerHTML = '';
       return;
     }
-    const history = tl.chess.history() as string[];
+    // Use moveHistory instead of chess.history() because chess.load() wipes history
+    // when we modify FEN for time travel/cross-timeline moves
+    const history = tl.moveHistory.map(m => m.san);
     let html = '';
     for (let i = 0; i < history.length; i += 2) {
       const num = Math.floor(i / 2) + 1;
@@ -1029,7 +1724,8 @@ class GameManager {
       const isActive = id === this.activeTimelineId;
       const color = colors[id % colors.length];
       const hexColor = '#' + color.toString(16).padStart(6, '0');
-      const turnCount = (tl.chess.history() as string[]).length;
+      // Use moveHistory instead of chess.history() because chess.load() wipes history
+      const turnCount = tl.moveHistory.length;
 
       // Check if this timeline has children (is a branch point)
       const hasChildren = childrenOf[id] && childrenOf[id].length > 0;
@@ -1174,6 +1870,10 @@ class GameManager {
 
   /* -- Reset -- */
   reset(): void {
+    // Stop CPU if running
+    this.cpuStop();
+    this.cpuGlobalTurn = 'w';
+
     Board3D.clearAll();
     this.timelines = {};
     this.nextTimelineId = 1;
@@ -1189,6 +1889,278 @@ class GameManager {
     this.renderTimeline(0);
     this.updateStatus();
     this.updateTimelineList();
+
+    // Setup collapsible shortcuts panel
+    this._setupCollapsibleShortcuts();
+  }
+
+  /* -- CPU Mode -- */
+
+  // CPU state
+  private cpuEnabled = false;
+  private cpuTimer: number | null = null;
+  private cpuMoveDelay = 400;  // ms between moves (faster for visual effect)
+  private maxTimelines = 10;   // Limit timeline creation
+  private cpuCameraFollow = true;  // Auto-follow moves with camera
+  private cpuGlobalTurn: PieceColor = 'w';  // Track whose turn globally (independent of per-timeline state)
+
+  // Per-color CPU settings
+  private cpuWhiteEnabled = true;
+  private cpuBlackEnabled = true;
+  private cpuWhiteCapturePreference = 0.7;
+  private cpuBlackCapturePreference = 0.7;
+
+  // Per-piece portal biases (per color)
+  private cpuWhitePortalBias: Record<string, number> = { q: 0.3, r: 0.2, b: 0.15, n: 0.1 };
+  private cpuBlackPortalBias: Record<string, number> = { q: 0.3, r: 0.2, b: 0.15, n: 0.1 };
+
+  /** Start CPU auto-play mode */
+  cpuStart(): void {
+    if (this.cpuEnabled) return;
+    this.cpuEnabled = true;
+    this._cpuTick();
+    this._updateCpuUI();
+  }
+
+  /** Stop CPU auto-play mode */
+  cpuStop(): void {
+    this.cpuEnabled = false;
+    if (this.cpuTimer !== null) {
+      clearTimeout(this.cpuTimer);
+      this.cpuTimer = null;
+    }
+    this._updateCpuUI();
+  }
+
+  /** Toggle CPU mode */
+  cpuToggle(): void {
+    if (this.cpuEnabled) {
+      this.cpuStop();
+    } else {
+      this.cpuStart();
+    }
+  }
+
+  /** Set move delay (100-2000ms) */
+  cpuSetDelay(ms: number): void {
+    this.cpuMoveDelay = Math.max(100, Math.min(2000, ms));
+  }
+
+  /** Toggle camera follow mode */
+  cpuSetCameraFollow(follow: boolean): void {
+    this.cpuCameraFollow = follow;
+    this._updateCpuUI();
+  }
+
+  /** Set white CPU enabled */
+  cpuSetWhiteEnabled(enabled: boolean): void {
+    this.cpuWhiteEnabled = enabled;
+    this._updateCpuUI();
+  }
+
+  /** Set black CPU enabled */
+  cpuSetBlackEnabled(enabled: boolean): void {
+    this.cpuBlackEnabled = enabled;
+    this._updateCpuUI();
+  }
+
+  /** Set white capture preference (0-1) */
+  cpuSetWhiteCapturePreference(pref: number): void {
+    this.cpuWhiteCapturePreference = Math.max(0, Math.min(1, pref));
+  }
+
+  /** Set black capture preference (0-1) */
+  cpuSetBlackCapturePreference(pref: number): void {
+    this.cpuBlackCapturePreference = Math.max(0, Math.min(1, pref));
+  }
+
+  /** Main CPU tick - called repeatedly while enabled */
+  private _cpuTick(): void {
+    if (!this.cpuEnabled) return;
+
+    // Check if this color's CPU is enabled
+    const isWhiteTurn = this.cpuGlobalTurn === 'w';
+    const cpuActiveForColor = isWhiteTurn ? this.cpuWhiteEnabled : this.cpuBlackEnabled;
+
+    if (!cpuActiveForColor) {
+      // This color's CPU is disabled, flip turn and continue
+      this.cpuGlobalTurn = isWhiteTurn ? 'b' : 'w';
+      this.cpuTimer = window.setTimeout(() => this._cpuTick(), this.cpuMoveDelay);
+      return;
+    }
+
+    // Find ALL playable timelines for current color and make moves on each
+    const playableTimelines = this._cpuGetPlayableTimelines();
+
+    if (playableTimelines.length === 0) {
+      // No playable timelines - flip turn and keep ticking
+      this.cpuGlobalTurn = isWhiteTurn ? 'b' : 'w';
+      this.cpuTimer = window.setTimeout(() => this._cpuTick(), this.cpuMoveDelay);
+      return;
+    }
+
+    // Make a move on ONE random playable timeline (to keep pace reasonable)
+    const tlId = playableTimelines[Math.floor(Math.random() * playableTimelines.length)];
+    const moved = this._cpuMakeMove(tlId);
+
+    if (moved) {
+      // After successful move, flip global turn
+      this.cpuGlobalTurn = isWhiteTurn ? 'b' : 'w';
+    }
+
+    // Schedule next tick
+    this.cpuTimer = window.setTimeout(() => this._cpuTick(), this.cpuMoveDelay);
+  }
+
+  /** Get all timelines where current color can play */
+  private _cpuGetPlayableTimelines(): number[] {
+    const playable: number[] = [];
+
+    for (const key in this.timelines) {
+      const tl = this.timelines[parseInt(key)];
+      // Timeline is playable if it's this color's turn AND not in checkmate/stalemate
+      if (tl.chess.turn() === this.cpuGlobalTurn &&
+          !tl.chess.in_checkmate() &&
+          !tl.chess.in_stalemate()) {
+        playable.push(tl.id);
+      }
+    }
+
+    return playable;
+  }
+
+  /** Make a CPU move on the given timeline */
+  private _cpuMakeMove(tlId: number): boolean {
+    const tl = this.timelines[tlId];
+    if (!tl) return false;
+
+    const isWhite = tl.chess.turn() === 'w';
+    const capturePreference = isWhite ? this.cpuWhiteCapturePreference : this.cpuBlackCapturePreference;
+
+    // Switch to this timeline and animate camera if follow mode enabled
+    if (this.activeTimelineId !== tlId) {
+      this.setActiveTimeline(tlId, this.cpuCameraFollow);
+    }
+
+    // Get legal moves
+    const moves = tl.chess.moves({ verbose: true }) as ChessMove[];
+    if (moves.length === 0) return false;
+
+    // Check for time travel opportunity (if under timeline limit)
+    // _cpuCheckTimeTravel already handles per-piece bias checks internally
+    if (Object.keys(this.timelines).length < this.maxTimelines) {
+      const timeTravelMove = this._cpuCheckTimeTravel(tlId);
+      if (timeTravelMove) {
+        // Execute time travel move!
+        console.log('[CPU] Time traveling!', { color: isWhite ? 'white' : 'black', timeline: tlId });
+        this._makeTimeTravelMove(
+          tlId,
+          timeTravelMove.sourceSquare,
+          timeTravelMove.targetTurnIndex,
+          timeTravelMove.piece,
+          timeTravelMove.isCapture ? timeTravelMove.capturedPiece : null
+        );
+        return true;
+      }
+    }
+
+    // Otherwise, pick a random legal move (with preference for captures based on setting)
+    const captures = moves.filter(m => m.captured);
+    let move: ChessMove;
+
+    if (captures.length > 0 && Math.random() < capturePreference) {
+      move = captures[Math.floor(Math.random() * captures.length)];
+    } else {
+      move = moves[Math.floor(Math.random() * moves.length)];
+    }
+
+    // Execute the move (auto-queen for CPU promotions)
+    this.makeMove(tlId, move, move.promotion ? 'q' : undefined);
+    return true;
+  }
+
+  /** Check if CPU has a time travel opportunity on this timeline */
+  private _cpuCheckTimeTravel(tlId: number): TimeTravelTarget & { sourceSquare: Square; piece: Piece } | null {
+    const tl = this.timelines[tlId];
+    if (!tl) return null;
+
+    const color = tl.chess.turn();
+    const board = tl.chess.board();
+    const isWhite = color === 'w';
+    const portalBiases = isWhite ? this.cpuWhitePortalBias : this.cpuBlackPortalBias;
+
+    // Collect all portal opportunities with their biases
+    const opportunities: Array<{
+      target: TimeTravelTarget;
+      sourceSquare: Square;
+      piece: Piece;
+      bias: number;
+    }> = [];
+
+    // Find pieces that can time travel (q, r, b, n)
+    const timeTravelPieces = ['q', 'r', 'b', 'n'];
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const piece = board[r][c];
+        if (piece && timeTravelPieces.includes(piece.type) && piece.color === color) {
+          const bias = portalBiases[piece.type] || 0;
+          if (bias <= 0) continue; // Skip if bias is 0
+
+          const square = (String.fromCharCode(97 + c) + (8 - r)) as Square;
+          const targets = this._getTimeTravelTargets(tlId, square, piece);
+
+          for (const target of targets) {
+            opportunities.push({ target, sourceSquare: square, piece, bias });
+          }
+        }
+      }
+    }
+
+    if (opportunities.length === 0) return null;
+
+    // For each opportunity, roll dice based on its bias
+    // Prefer captures, use highest-bias piece type
+    const captures = opportunities.filter(o => o.target.isCapture);
+    const pool = captures.length > 0 ? captures : opportunities;
+
+    // Sort by bias (highest first) and pick from top opportunities
+    pool.sort((a, b) => b.bias - a.bias);
+
+    // Pick the first opportunity that passes its bias check
+    for (const opp of pool) {
+      if (Math.random() < opp.bias) {
+        return { ...opp.target, sourceSquare: opp.sourceSquare, piece: opp.piece };
+      }
+    }
+
+    return null;
+  }
+
+  /** Update CPU UI elements */
+  private _updateCpuUI(): void {
+    const btn = document.getElementById('cpu-toggle');
+    if (btn) {
+      btn.textContent = this.cpuEnabled ? 'Stop CPU' : 'Start CPU';
+      btn.classList.toggle('active', this.cpuEnabled);
+    }
+
+    const cameraBtn = document.getElementById('cpu-camera-toggle');
+    if (cameraBtn) {
+      cameraBtn.textContent = this.cpuCameraFollow ? 'Camera Follow: ON' : 'Camera Follow: OFF';
+      cameraBtn.classList.toggle('active', this.cpuCameraFollow);
+    }
+
+    const whiteToggle = document.getElementById('cpu-white-toggle');
+    if (whiteToggle) {
+      whiteToggle.textContent = this.cpuWhiteEnabled ? 'ON' : 'OFF';
+      whiteToggle.classList.toggle('active', this.cpuWhiteEnabled);
+    }
+
+    const blackToggle = document.getElementById('cpu-black-toggle');
+    if (blackToggle) {
+      blackToggle.textContent = this.cpuBlackEnabled ? 'ON' : 'OFF';
+      blackToggle.classList.toggle('active', this.cpuBlackEnabled);
+    }
   }
 }
 
