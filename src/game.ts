@@ -147,11 +147,6 @@ class GameManager {
       cpuToggle.addEventListener('click', () => this.cpuToggle());
     }
 
-    const pauseBtn = document.getElementById('cpu-pause');
-    if (pauseBtn) {
-      pauseBtn.addEventListener('click', () => this.cpuTogglePause());
-    }
-
     const speedSlider = document.getElementById('cpu-speed') as HTMLInputElement | null;
     if (speedSlider) {
       speedSlider.addEventListener('input', () => {
@@ -1885,7 +1880,6 @@ timelines - list timelines`,
 
   // CPU state
   private cpuEnabled = false;
-  private cpuPaused = false;
   private cpuTimer: number | null = null;
   private cpuMoveDelay = 400;  // ms between moves (faster for visual effect)
   private maxTimelines = 10;   // Limit timeline creation
@@ -1913,7 +1907,6 @@ timelines - list timelines`,
   /** Stop CPU auto-play mode */
   cpuStop(): void {
     this.cpuEnabled = false;
-    this.cpuPaused = false;
     if (this.cpuTimer !== null) {
       clearTimeout(this.cpuTimer);
       this.cpuTimer = null;
@@ -1927,18 +1920,6 @@ timelines - list timelines`,
       this.cpuStop();
     } else {
       this.cpuStart();
-    }
-  }
-
-  /** Toggle pause mode (while CPU is running) */
-  cpuTogglePause(): void {
-    if (!this.cpuEnabled) return;
-    this.cpuPaused = !this.cpuPaused;
-    this._updateCpuUI();
-
-    // If unpausing, kick off the next tick
-    if (!this.cpuPaused && this.cpuTimer === null) {
-      this._cpuTick();
     }
   }
 
@@ -1978,10 +1959,6 @@ timelines - list timelines`,
   /** Main CPU tick - called repeatedly while enabled */
   private _cpuTick(): void {
     if (!this.cpuEnabled) return;
-    if (this.cpuPaused) {
-      this.cpuTimer = null;
-      return;
-    }
 
     // Check if this color's CPU is enabled
     const isWhiteTurn = this.cpuGlobalTurn === 'w';
@@ -2147,13 +2124,6 @@ timelines - list timelines`,
     if (btn) {
       btn.textContent = this.cpuEnabled ? 'Stop CPU' : 'Start CPU';
       btn.classList.toggle('active', this.cpuEnabled);
-    }
-
-    const pauseBtn = document.getElementById('cpu-pause') as HTMLButtonElement | null;
-    if (pauseBtn) {
-      pauseBtn.disabled = !this.cpuEnabled;
-      pauseBtn.textContent = this.cpuPaused ? 'Resume' : 'Pause';
-      pauseBtn.classList.toggle('active', this.cpuPaused);
     }
 
     const cameraBtn = document.getElementById('cpu-camera-toggle');
