@@ -1040,7 +1040,8 @@ class Board3DManager implements IBoard3D {
     type: 'branch' | 'cross' | 'timetravel';
     fromTlId: number;
     toTlId: number;
-    fromTurn: number;  // Snapshot index in source timeline at time of creation
+    fromTurn: number;  // Snapshot count in source timeline at time of creation
+    toTurn?: number;   // Snapshot count in target timeline at time of creation
     square?: string;
     targetTurnIndex?: number;  // For time travel: target snapshot index
     isWhite?: boolean;
@@ -1300,11 +1301,13 @@ class Board3DManager implements IBoard3D {
     if (!fromCol || !toCol || !this.branchLineGroup) return;
 
     // Store metadata for rebuilding when snapshots shift
+    // Track both timelines' snapshot counts so lines step down correctly on each
     this._branchLineData.push({
       type: 'cross',
       fromTlId,
       toTlId,
-      fromTurn: fromCol.historyLayers.length,  // Current snapshot count
+      fromTurn: fromCol.historyLayers.length,
+      toTurn: toCol.historyLayers.length,
       square,
       isWhite,
     });
@@ -1325,12 +1328,14 @@ class Board3DManager implements IBoard3D {
     if (!sourceCol || !newCol || !this.branchLineGroup) return;
 
     // Store metadata for rebuilding when snapshots shift
-    // fromTurn = current snapshot count at time of travel (so we know the offset)
+    // fromTurn = snapshot count on source at time of travel
+    // toTurn = snapshot count on new timeline at time of travel (for stepping down)
     this._branchLineData.push({
       type: 'timetravel',
       fromTlId: sourceTlId,
       toTlId: newTlId,
-      fromTurn: sourceCol.historyLayers.length,  // Snapshot count at time of creation
+      fromTurn: sourceCol.historyLayers.length,
+      toTurn: newCol.historyLayers.length,
       targetTurnIndex,
       square,
       isWhite,
@@ -1374,26 +1379,37 @@ class Board3DManager implements IBoard3D {
         this.branchLineGroup.add(Board3DManager._glowTube(from, to, tintCol, 0.04, 0.18, true, opacityScale));
 
       } else if (data.type === 'cross' && data.square) {
-        // Cross-timeline: horizontal line at current board height
+        // Cross-timeline: horizontal line connecting the move positions on both timelines
         const pos = this._fromSq(data.square);
         const sqX = pos.c - 3.5;
         const sqZ = pos.r - 3.5;
 
-        // Calculate depth based on how many snapshots have been added since cross move
-        const currentDepth = fromCol.historyLayers.length;
-        const depthSinceCross = currentDepth - data.fromTurn;
+        // Calculate depth on SOURCE timeline since cross move
+        const fromCurrentDepth = fromCol.historyLayers.length;
+        const depthSinceCrossFrom = fromCurrentDepth - data.fromTurn;
 
-        // If more moves have happened, the cross-timeline move is now in history
+        // Calculate depth on TARGET timeline since cross move
+        const toCurrentDepth = toCol.historyLayers.length;
+        const depthSinceCrossTo = toCurrentDepth - (data.toTurn ?? data.fromTurn);
+
+        // Source Y: steps down as more moves happen on source timeline
         let fromY = 0.3;  // Current board
-        if (depthSinceCross > 0) {
-          fromY = -(depthSinceCross) * TimelineCol.LAYER_GAP + 0.2;
+        if (depthSinceCrossFrom > 0) {
+          fromY = -(depthSinceCrossFrom) * TimelineCol.LAYER_GAP + 0.2;
+        }
+
+        // Target Y: steps down as more moves happen on target timeline
+        let toY = 0.3;
+        if (depthSinceCrossTo > 0) {
+          toY = -(depthSinceCrossTo) * TimelineCol.LAYER_GAP + 0.2;
         }
 
         const from = new THREE.Vector3(fromCol.xOffset + sqX, fromY, sqZ);
-        const to = new THREE.Vector3(toCol.xOffset + sqX, fromY, sqZ);
+        const to = new THREE.Vector3(toCol.xOffset + sqX, toY, sqZ);
 
         const color = 0xaa44ff;  // Purple
-        const opacityScale = Math.max(0.2, 1 - depthSinceCross * 0.08);
+        const avgDepth = (depthSinceCrossFrom + depthSinceCrossTo) / 2;
+        const opacityScale = Math.max(0.2, 1 - avgDepth * 0.08);
         this.branchLineGroup.add(Board3DManager._glowTube(from, to, color, 0.03, 0.12, true, opacityScale));
 
       } else if (data.type === 'timetravel' && data.square !== undefined && data.targetTurnIndex !== undefined) {
@@ -1402,26 +1418,38 @@ class Board3DManager implements IBoard3D {
         const sqX = pos.c - 3.5;
         const sqZ = pos.r - 3.5;
 
-        // Calculate how many snapshots have been added since the time travel
-        const currentDepth = fromCol.historyLayers.length;
-        const depthSinceTravel = currentDepth - data.fromTurn;
+        // Calculate how many snapshots have been added on SOURCE timeline since time travel
+        const fromCurrentDepth = fromCol.historyLayers.length;
+        const depthSinceTravelFrom = fromCurrentDepth - data.fromTurn;
 
-        // Start Y: if more moves have happened, start position is in history
+        // Calculate how many snapshots have been added on NEW timeline since creation
+        const toCurrentDepth = toCol.historyLayers.length;
+        const depthSinceTravelTo = toCurrentDepth - (data.toTurn ?? 0);
+
+        // Start Y: departure point on source timeline steps down as moves happen
         let startY = 0.3;  // Current board
-        if (depthSinceTravel > 0) {
-          startY = -(depthSinceTravel) * TimelineCol.LAYER_GAP + 0.2;
+        if (depthSinceTravelFrom > 0) {
+          startY = -(depthSinceTravelFrom) * TimelineCol.LAYER_GAP + 0.2;
         }
 
-        // Target Y: the target turn index plus the offset from new snapshots
-        const adjustedTargetIndex = data.targetTurnIndex + depthSinceTravel + 1;
-        const targetY = -(adjustedTargetIndex + 1) * TimelineCol.LAYER_GAP + 0.2;
+        // Mid Y: the historical target point on source timeline
+        // This also needs to step down as new snapshots are added
+        const adjustedTargetIndex = data.targetTurnIndex + depthSinceTravelFrom + 1;
+        const midY = -(adjustedTargetIndex + 1) * TimelineCol.LAYER_GAP + 0.2;
+
+        // End Y: arrival point on new timeline steps down as that timeline gets more moves
+        let endY = 0.3;
+        if (depthSinceTravelTo > 0) {
+          endY = -(depthSinceTravelTo) * TimelineCol.LAYER_GAP + 0.2;
+        }
 
         const start = new THREE.Vector3(fromCol.xOffset + sqX, startY, sqZ);
-        const mid = new THREE.Vector3(fromCol.xOffset + sqX, targetY, sqZ);
-        const end = new THREE.Vector3(toCol.xOffset + sqX, 0.3, sqZ);
+        const mid = new THREE.Vector3(fromCol.xOffset + sqX, midY, sqZ);
+        const end = new THREE.Vector3(toCol.xOffset + sqX, endY, sqZ);
 
         const color = 0x44ffaa;  // Cyan-green
-        const opacityScale = Math.max(0.2, 1 - depthSinceTravel * 0.08);
+        const avgDepth = (depthSinceTravelFrom + depthSinceTravelTo) / 2;
+        const opacityScale = Math.max(0.2, 1 - avgDepth * 0.08);
 
         // Vertical line down through time
         this.branchLineGroup.add(Board3DManager._glowTube(start, mid, color, 0.03, 0.12, false, opacityScale));
