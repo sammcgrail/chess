@@ -121,6 +121,31 @@ class GameManager {
     });
   }
 
+  /* -- Collapsible Shortcuts Panel -- */
+  private _setupCollapsibleShortcuts(): void {
+    const panel = document.getElementById('shortcuts-panel');
+    const header = document.getElementById('shortcuts-header');
+    if (panel && header && !header.hasAttribute('data-collapse-init')) {
+      header.setAttribute('data-collapse-init', 'true');
+      // Start collapsed by default
+      panel.classList.add('collapsed');
+      header.style.cursor = 'pointer';
+      header.addEventListener('click', () => {
+        panel.classList.toggle('collapsed');
+      });
+
+      // Add CSS for collapsed state if not present
+      if (!document.getElementById('collapsible-shortcuts-style')) {
+        const style = document.createElement('style');
+        style.id = 'collapsible-shortcuts-style';
+        style.textContent = `
+          #shortcuts-panel.collapsed .shortcut-row { display: none; }
+        `;
+        document.head.appendChild(style);
+      }
+    }
+  }
+
   /* -- Move Slider -- */
   private _setupMoveSlider(): void {
     const sliderContainer = document.createElement('div');
