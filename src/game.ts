@@ -1790,16 +1790,6 @@ timelines - list timelines`,
     this._updateCpuUI();
   }
 
-  /** Set white portal bias (0-1) */
-  cpuSetWhitePortalBias(bias: number): void {
-    this.cpuWhitePortalBias = Math.max(0, Math.min(1, bias));
-  }
-
-  /** Set black portal bias (0-1) */
-  cpuSetBlackPortalBias(bias: number): void {
-    this.cpuBlackPortalBias = Math.max(0, Math.min(1, bias));
-  }
-
   /** Set white capture preference (0-1) */
   cpuSetWhiteCapturePreference(pref: number): void {
     this.cpuWhiteCapturePreference = Math.max(0, Math.min(1, pref));
@@ -1875,7 +1865,6 @@ timelines - list timelines`,
     if (!tl) return false;
 
     const isWhite = tl.chess.turn() === 'w';
-    const portalBias = isWhite ? this.cpuWhitePortalBias : this.cpuBlackPortalBias;
     const capturePreference = isWhite ? this.cpuWhiteCapturePreference : this.cpuBlackCapturePreference;
 
     // Switch to this timeline and animate camera if follow mode enabled
@@ -1887,10 +1876,11 @@ timelines - list timelines`,
     const moves = tl.chess.moves({ verbose: true }) as ChessMove[];
     if (moves.length === 0) return false;
 
-    // Check for time travel opportunity (if we have a queen and under timeline limit)
+    // Check for time travel opportunity (if under timeline limit)
+    // _cpuCheckTimeTravel already handles per-piece bias checks internally
     if (Object.keys(this.timelines).length < this.maxTimelines) {
       const timeTravelMove = this._cpuCheckTimeTravel(tlId);
-      if (timeTravelMove && Math.random() < portalBias) {
+      if (timeTravelMove) {
         // Execute time travel move!
         console.log('[CPU] Time traveling!', { color: isWhite ? 'white' : 'black', timeline: tlId });
         this._makeTimeTravelMove(
