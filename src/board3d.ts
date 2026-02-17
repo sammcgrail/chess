@@ -962,19 +962,21 @@ class Board3DManager implements IBoard3D {
     type: 'portal' | 'capture';
   }> = [];
 
+  // Use WHITE CHESS symbols (outlined) for both colors to avoid emoji rendering
+  // The fill/stroke colors in _pieceTexture() distinguish white vs black pieces
   readonly PIECE_CHARS: PieceCharMap = {
-    K: '\u2654',
-    Q: '\u2655',
-    R: '\u2656',
-    B: '\u2657',
-    N: '\u2658',
-    P: '\u2659',
-    k: '\u265A',
-    q: '\u265B',
-    r: '\u265C',
-    b: '\u265D',
-    n: '\u265E',
-    p: '\u265F',
+    K: '\u2654',  // ♔ WHITE CHESS KING
+    Q: '\u2655',  // ♕ WHITE CHESS QUEEN
+    R: '\u2656',  // ♖ WHITE CHESS ROOK
+    B: '\u2657',  // ♗ WHITE CHESS BISHOP
+    N: '\u2658',  // ♘ WHITE CHESS KNIGHT
+    P: '\u2659',  // ♙ WHITE CHESS PAWN
+    k: '\u2654',  // Use white glyph, colored dark by _pieceTexture
+    q: '\u2655',
+    r: '\u2656',
+    b: '\u2657',
+    n: '\u2658',
+    p: '\u2659',
   };
 
   readonly TIMELINE_COLORS: number[] = [
