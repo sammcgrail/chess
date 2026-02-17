@@ -423,6 +423,9 @@ export class TimelineCol implements ITimelineCol {
 
   /* render pieces on current board */
   render(position: Board): void {
+    const prevCount = this.pieceMeshes.length;
+    const timestamp = Date.now();
+
     // Remove and dispose of old piece sprites to prevent stacking and memory leaks
     // Use reverse iteration to safely remove during iteration
     for (let i = this.pieceMeshes.length - 1; i >= 0; i--) {
@@ -452,6 +455,19 @@ export class TimelineCol implements ITimelineCol {
         }
       }
     });
+
+    // Log if we found orphaned sprites - this indicates a bug somewhere
+    if (toRemove.length > 0) {
+      console.warn('[Board3D] VISUAL_TRAILS_BUG: Found', toRemove.length, 'orphaned piece sprites on timeline', this.id, {
+        timestamp,
+        orphanPositions: toRemove.map(obj => ({
+          x: obj.position.x.toFixed(2),
+          y: obj.position.y.toFixed(2),
+          z: obj.position.z.toFixed(2),
+        })),
+      });
+    }
+
     for (const obj of toRemove) {
       this.group.remove(obj);
       if ((obj as Sprite).material) {
@@ -459,11 +475,15 @@ export class TimelineCol implements ITimelineCol {
       }
     }
 
+    // Count pieces in the new position
+    let newPieceCount = 0;
+
     // Now add fresh piece sprites
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
         const piece = position[r][c];
         if (!piece) continue;
+        newPieceCount++;
         const isW = piece.color === 'w';
         const chKey = isW ? piece.type.toUpperCase() : piece.type;
         const tex = this._pieceTex(this._pieceChars[chKey], isW);
@@ -476,6 +496,37 @@ export class TimelineCol implements ITimelineCol {
         this.pieceMeshes.push(sprite);
         this.group.add(sprite);
       }
+    }
+
+    // Verify sprite count matches piece count
+    if (this.pieceMeshes.length !== newPieceCount) {
+      console.error('[Board3D] VISUAL_TRAILS_BUG: Sprite count mismatch!', {
+        timeline: this.id,
+        timestamp,
+        expected: newPieceCount,
+        actual: this.pieceMeshes.length,
+      });
+    }
+
+    // Final validation: scan group for any sprites at piece height
+    let spritesAtPieceHeight = 0;
+    this.group.traverse((child: Object3D) => {
+      if ((child as Sprite).isSprite && Math.abs(child.position.y - 0.22) < 0.01) {
+        const x = child.position.x;
+        const z = child.position.z;
+        if (x >= -4 && x <= 4 && z >= -4 && z <= 4) {
+          spritesAtPieceHeight++;
+        }
+      }
+    });
+    if (spritesAtPieceHeight !== newPieceCount) {
+      console.error('[Board3D] VISUAL_TRAILS_BUG: Post-render sprite mismatch!', {
+        timeline: this.id,
+        timestamp,
+        expectedPieces: newPieceCount,
+        spritesInGroup: spritesAtPieceHeight,
+        trackedSprites: this.pieceMeshes.length,
+      });
     }
   }
 
