@@ -949,8 +949,16 @@ timelines - list timelines`,
       Board3D.spawnCaptureEffect(tlId, move.to);
     }
 
+    console.log('[makeMove] VISUAL_TRAILS_DEBUG: About to render after move', {
+      timestamp: Date.now(),
+      timelineId: tlId,
+      move: move.san || `${move.from}-${move.to}`,
+    });
     this.clearSelection();
     this.renderTimeline(tlId);
+    console.log('[makeMove] VISUAL_TRAILS_DEBUG: Render complete', {
+      timestamp: Date.now(),
+    });
     this.updateStatus();
     this.updateMoveList();
     this.updateTimelineList();
@@ -1098,9 +1106,18 @@ timelines - list timelines`,
     Board3D.addCrossTimelineLine(sourceTimelineId, targetTimelineId, square, isWhite);
 
     // 5. Update UI
+    console.log('[crossTimeline] VISUAL_TRAILS_DEBUG: About to render after cross-timeline move', {
+      timestamp: Date.now(),
+      sourceTimelineId,
+      targetTimelineId,
+      square,
+    });
     this.clearSelection();
     this.renderTimeline(sourceTimelineId);
     this.renderTimeline(targetTimelineId);
+    console.log('[crossTimeline] VISUAL_TRAILS_DEBUG: Render complete', {
+      timestamp: Date.now(),
+    });
     this.updateStatus();
     this.updateMoveList();
     this.updateTimelineList();
@@ -1361,11 +1378,20 @@ timelines - list timelines`,
     );
 
     // 4. Switch to the new timeline (respect camera follow setting for CPU mode)
+    console.log('[Time Travel] VISUAL_TRAILS_DEBUG: About to render after time travel', {
+      timestamp: Date.now(),
+      sourceTimelineId,
+      newTimelineId: newId,
+      sourceSquare,
+    });
     this.clearSelection();
     const shouldFocus = !this.cpuEnabled || this.cpuCameraFollow;
     this.setActiveTimeline(newId, shouldFocus);
     this.renderTimeline(sourceTimelineId);
     this.renderTimeline(newId);
+    console.log('[Time Travel] VISUAL_TRAILS_DEBUG: Render complete', {
+      timestamp: Date.now(),
+    });
     this.updateTimelineList();
     this._updateMoveSlider();
 
