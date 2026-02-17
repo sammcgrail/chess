@@ -188,7 +188,7 @@ export class TimelineCol implements ITimelineCol {
         const sprite = new THREE.Sprite(
           new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false })
         );
-        sprite.position.set(c - 3.5, 0.38, r - 3.5);
+        sprite.position.set(c - 3.5, 0.22, r - 3.5);
         sprite.scale.set(0.88, 0.88, 0.88);
         this.pieceMeshes.push(sprite);
         this.group.add(sprite);
@@ -464,7 +464,7 @@ export class TimelineCol implements ITimelineCol {
         const sp = new THREE.Sprite(
           new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.35, depthWrite: false })
         );
-        sp.position.set(c2 - 3.5, 0.25, r2 - 3.5);
+        sp.position.set(c2 - 3.5, 0.12, r2 - 3.5);
         sp.scale.set(0.7, 0.7, 0.7);
         g.add(sp);
       }
