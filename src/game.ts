@@ -41,6 +41,10 @@ class GameManager {
   private _lastMoveListHtml = '';
   private _lastTimelineListHtml = '';
 
+  // Debounce timer for timeline hover highlighting
+  private _highlightDebounceTimer: number | null = null;
+  private _highlightDebounceDelay = 50; // ms
+
   init(): void {
     Board3D.init('scene-container', (info) => this.handleClick(info));
 
@@ -63,6 +67,9 @@ class GameManager {
 
     // Setup sidebar resize
     this._setupSidebarResize();
+
+    // Setup timeline panel resize and collapse
+    this._setupTimelinePanel();
 
     // Create the main timeline
     this._createTimeline(0, 0, null, -1, null);
@@ -299,6 +306,58 @@ class GameManager {
       sidebar.style.width = newWidth + 'px';
       sidebar.style.minWidth = newWidth + 'px';
       sidebar.style.maxWidth = newWidth + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isResizing) {
+        isResizing = false;
+        resizeHandle.classList.remove('dragging');
+        document.body.style.cursor = '';
+      }
+    });
+  }
+
+  /* -- Timeline Panel Resize and Collapse -- */
+  private _setupTimelinePanel(): void {
+    const panel = document.getElementById('timeline-panel');
+    const header = document.getElementById('timeline-header');
+    const resizeHandle = document.getElementById('timeline-resize');
+    if (!panel || !header) return;
+
+    // Collapse/expand on header click
+    header.addEventListener('click', () => {
+      panel.classList.toggle('collapsed');
+    });
+
+    // Resize functionality
+    if (!resizeHandle) return;
+
+    let isResizing = false;
+    let startY = 0;
+    let startHeight = 0;
+
+    resizeHandle.addEventListener('mousedown', (e: MouseEvent) => {
+      isResizing = true;
+      startY = e.clientY;
+      startHeight = panel.offsetHeight;
+      resizeHandle.classList.add('dragging');
+      document.body.style.cursor = 'ns-resize';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e: MouseEvent) => {
+      if (!isResizing) return;
+      const diff = e.clientY - startY;
+      // Constrain to sensible limits
+      const maxHeight = 300;
+      const minHeight = 60;
+      const newHeight = Math.max(minHeight, Math.min(maxHeight, startHeight + diff));
+      panel.style.maxHeight = newHeight + 'px';
+      // Update timeline-list max-height (panel height minus header height ~32px)
+      const listEl = document.getElementById('timeline-list');
+      if (listEl) {
+        listEl.style.maxHeight = (newHeight - 32) + 'px';
+      }
     });
 
     document.addEventListener('mouseup', () => {
@@ -1836,6 +1895,25 @@ timelines - list timelines`,
 
   /* -- Branch Point Indicators -- */
   private _highlightConnectedTimelines(tlId: number, highlight: boolean): void {
+    // Cancel any pending highlight operation
+    if (this._highlightDebounceTimer !== null) {
+      clearTimeout(this._highlightDebounceTimer);
+      this._highlightDebounceTimer = null;
+    }
+
+    // For unhighlight, execute immediately to avoid lingering highlights
+    // For highlight, debounce to prevent flicker during rapid hover changes (e.g., CPU play)
+    if (!highlight) {
+      this._executeHighlight(tlId, false);
+    } else {
+      this._highlightDebounceTimer = window.setTimeout(() => {
+        this._executeHighlight(tlId, true);
+        this._highlightDebounceTimer = null;
+      }, this._highlightDebounceDelay);
+    }
+  }
+
+  private _executeHighlight(tlId: number, highlight: boolean): void {
     const tl = this.timelines[tlId];
     if (!tl) return;
 
