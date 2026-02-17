@@ -45,7 +45,6 @@ declare const THREE: typeof import('three') & {
 
 export class TimelineCol implements ITimelineCol {
   static readonly LAYER_GAP = 2.8;
-  static readonly MAX_LAYERS = 12;
 
   private scene: Scene;
   id: number;
@@ -327,11 +326,7 @@ export class TimelineCol implements ITimelineCol {
     this.historyLayers.unshift(layerGroup);
     this.group.add(layerGroup);
 
-    while (this.historyLayers.length > TimelineCol.MAX_LAYERS) {
-      const old = this.historyLayers.pop()!;
-      this._removeHistorySquares(old);
-      this.group.remove(old);
-    }
+    // No limit on history layers - removed MAX_LAYERS cap
     this._layoutLayers();
   }
 
@@ -520,6 +515,13 @@ export class TimelineCol implements ITimelineCol {
 // Board3D - scene manager, coordinates multiple timelines
 // ===============================================================
 
+// Metadata for branch lines that need to be rebuilt when timelines move
+interface BranchLineMetadata {
+  fromTlId: number;
+  fromTurn: number;
+  toTlId: number;
+}
+
 class Board3DManager implements IBoard3D {
   scene: Scene | null = null;
   camera: PerspectiveCamera | null = null;
@@ -534,6 +536,7 @@ class Board3DManager implements IBoard3D {
 
   timelineCols: Record<number, TimelineCol> = {};
   private branchLineGroup: Group | null = null;
+  private branchLineMetadata: BranchLineMetadata[] = [];
   private particleSystem: Points | null = null;
   private onSquareClick:
     | ((info: { timelineId: number; square: string; turn: number; isHistory: boolean }) => void)
@@ -660,15 +663,38 @@ class Board3DManager implements IBoard3D {
 
   /* add a glow branch line between two timelines */
   addBranchLine(fromTlId: number, fromTurn: number, toTlId: number): void {
-    const fromCol = this.timelineCols[fromTlId];
-    const toCol = this.timelineCols[toTlId];
-    if (!fromCol || !toCol || !this.branchLineGroup) return;
+    // Store metadata for rebuilding when timelines move
+    this.branchLineMetadata.push({ fromTlId, fromTurn, toTlId });
+    this._rebuildBranchLines();
+  }
 
-    const fromY = -(fromTurn + 1) * TimelineCol.LAYER_GAP;
-    const from = new THREE.Vector3(fromCol.xOffset, fromY + 0.2, 0);
-    const to = new THREE.Vector3(toCol.xOffset, 0.2, 0);
-    const tintCol = this.TIMELINE_COLORS[toTlId % this.TIMELINE_COLORS.length];
-    this.branchLineGroup.add(Board3DManager._glowTube(from, to, tintCol, 0.04, 0.18, true));
+  /* Rebuild all branch lines based on current timeline positions */
+  private _rebuildBranchLines(): void {
+    if (!this.branchLineGroup) return;
+
+    // Clear existing branch lines
+    while (this.branchLineGroup.children.length) {
+      this.branchLineGroup.remove(this.branchLineGroup.children[0]);
+    }
+
+    // Rebuild each branch line with current positions
+    for (const meta of this.branchLineMetadata) {
+      const fromCol = this.timelineCols[meta.fromTlId];
+      const toCol = this.timelineCols[meta.toTlId];
+      if (!fromCol || !toCol) continue;
+
+      const fromY = -(meta.fromTurn + 1) * TimelineCol.LAYER_GAP;
+      const from = new THREE.Vector3(fromCol.xOffset, fromY + 0.2, 0);
+      // Target Y at -0.2 (slightly below board surface) instead of 0.2 (above)
+      const to = new THREE.Vector3(toCol.xOffset, -0.2, 0);
+      const tintCol = this.TIMELINE_COLORS[meta.toTlId % this.TIMELINE_COLORS.length];
+      this.branchLineGroup.add(Board3DManager._glowTube(from, to, tintCol, 0.04, 0.18, true));
+    }
+  }
+
+  /* Called when timelines are updated to refresh branch line positions */
+  updateBranchLines(): void {
+    this._rebuildBranchLines();
   }
 
   /** Add a horizontal line showing cross-timeline piece movement */
@@ -1103,6 +1129,7 @@ class Board3DManager implements IBoard3D {
         this.branchLineGroup.remove(this.branchLineGroup.children[0]);
       }
     }
+    this.branchLineMetadata = [];
     this.controls?.target.set(0, 0, 0);
   }
 }

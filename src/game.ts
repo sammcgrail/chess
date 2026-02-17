@@ -582,6 +582,9 @@ class GameManager {
       col.showLastMove(move.from, move.to);
     }
 
+    // Update branch lines since history layers may have shifted
+    Board3D.updateBranchLines();
+
     this.clearSelection();
     this.renderTimeline(tlId);
     this.updateStatus();
