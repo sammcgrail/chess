@@ -806,18 +806,35 @@ body {
     #status {
         font-size: 0.9rem;
         padding: 0.5rem;
+        flex-shrink: 0;
     }
 
-    /* FEN display improvements for mobile - make it taller */
+    /* FEN display improvements for mobile - ensure visibility */
     #fen-display {
         font-size: 0.6rem;
         padding: 0.5rem;
-        min-height: 60px;
+        min-height: 44px;
+        flex-shrink: 0;
+        overflow: visible;
     }
 
     #fen-text {
-        -webkit-line-clamp: 4;
-        line-height: 1.5;
+        -webkit-line-clamp: 3;
+        line-height: 1.4;
+        overflow-wrap: break-word;
+        word-break: break-all;
+    }
+
+    /* FEN tooltip positioning fix for mobile */
+    #fen-tooltip {
+        left: 0;
+        right: 0;
+        top: auto;
+        bottom: 100%;
+        margin-top: 0;
+        margin-bottom: 4px;
+        max-height: 30vh;
+        overflow-y: auto;
     }
 
     .fen-nav {
@@ -831,6 +848,7 @@ body {
 
     #timeline-panel {
         min-height: 60px;
+        flex-shrink: 0;
     }
 
     #timeline-list {
@@ -864,6 +882,20 @@ body {
     #status {
         font-size: 0.85rem;
         padding: 0.4rem;
+        flex-shrink: 0;
+    }
+
+    /* Ensure FEN stays visible on very small screens */
+    #fen-display {
+        font-size: 0.55rem;
+        padding: 0.4rem;
+        min-height: 40px;
+        flex-shrink: 0;
+    }
+
+    #fen-text {
+        -webkit-line-clamp: 2;
+        line-height: 1.3;
     }
 
     .tl-item {
