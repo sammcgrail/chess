@@ -1759,7 +1759,7 @@ class Board3DManager implements IBoard3D {
           transparent: true,
           opacity: 0.1 * opacityScale,
           blending: THREE.AdditiveBlending,
-          side: THREE.BackSide,
+          side: THREE.DoubleSide,
           depthWrite: false,
         })
       )
@@ -1772,7 +1772,7 @@ class Board3DManager implements IBoard3D {
           transparent: true,
           opacity: 0.22 * opacityScale,
           blending: THREE.AdditiveBlending,
-          side: THREE.BackSide,
+          side: THREE.DoubleSide,
           depthWrite: false,
         })
       )
