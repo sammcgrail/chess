@@ -40,6 +40,14 @@ declare const THREE: typeof import('three') & {
 };
 
 // ===============================================================
+// Module-level constants - accessible to all classes in this file
+// ===============================================================
+
+// Debug mode for piece overlap investigation
+// Set to true to enable detailed render logging
+const DEBUG_MODE = true;
+
+// ===============================================================
 // SharedResources - singleton for shared geometries and materials
 // Performance optimization: create once, reuse everywhere
 // ===============================================================
@@ -618,7 +626,7 @@ export class TimelineCol implements ITimelineCol {
     this._renderInProgress = true;
 
     // DEBUG: Log render entry with stack trace to identify caller
-    if (Board3DManager.DEBUG_MODE) {
+    if (DEBUG_MODE) {
       const stackLines = new Error().stack?.split('\n').slice(1, 5).join('\n') || '';
       console.log(`[Board3D.render] ENTRY timeline=${this.id} ts=${timestamp}`, {
         prevStateSize: this._prevBoardState.size,
@@ -663,7 +671,7 @@ export class TimelineCol implements ITimelineCol {
 
     // PERFORMANCE: Skip if nothing changed
     if (toRemove.length === 0 && toAdd.length === 0 && this._prevBoardState.size === newBoardState.size) {
-      if (Board3DManager.DEBUG_MODE) {
+      if (DEBUG_MODE) {
         console.log(`[Board3D.render] SKIP (no changes) timeline=${this.id}`);
       }
       this._renderInProgress = false;  // Reset flag on early return
@@ -671,7 +679,7 @@ export class TimelineCol implements ITimelineCol {
     }
 
     // DEBUG: Log what's changing
-    if (Board3DManager.DEBUG_MODE) {
+    if (DEBUG_MODE) {
       console.log(`[Board3D.render] CHANGES timeline=${this.id}`, {
         toRemove,
         toAdd,
@@ -707,7 +715,7 @@ export class TimelineCol implements ITimelineCol {
       // release it first to prevent overlaps from race conditions or edge cases
       const existingSprite = this._spriteMap.get(posKey) as PooledSprite | undefined;
       if (existingSprite) {
-        if (Board3DManager.DEBUG_MODE) {
+        if (DEBUG_MODE) {
           console.warn('[Board3D] Defensive cleanup: releasing existing sprite before adding new one', {
             timeline: this.id,
             posKey,
@@ -733,7 +741,7 @@ export class TimelineCol implements ITimelineCol {
       sprite.scale.set(0.88, 0.88, 0.88);
 
       // DEBUG: Check if any sprite already exists at this position in the scene BEFORE adding
-      if (Board3DManager.DEBUG_MODE) {
+      if (DEBUG_MODE) {
         let existingCount = 0;
         for (const child of this.group.children) {
           if (this._isMainBoardSprite(child as Object3D)) {
@@ -792,7 +800,7 @@ export class TimelineCol implements ITimelineCol {
     }
 
     // DEBUG: Validation checks
-    if (Board3DManager.DEBUG_MODE) {
+    if (DEBUG_MODE) {
       const expectedCount = newBoardState.size;
       if (this.pieceMeshes.length !== expectedCount) {
         console.error('[Board3D] VISUAL_TRAILS_BUG: Sprite count mismatch!', {
@@ -1738,8 +1746,7 @@ class Board3DManager implements IBoard3D {
   private _particleAnimFrame = 0;
   private static readonly PARTICLE_ANIM_INTERVAL = 3;  // Update every 3 frames
 
-  // Debug mode: disable validation traversals in production
-  static DEBUG_MODE = true;  // Set to true for debugging piece overlap issues
+  // Note: DEBUG_MODE is now a module-level constant at the top of this file
 
   // Performance: pooled scratch vectors (avoid GC churn from frequent allocations)
   // These are reused across frames in _updatePanning() for camera movement calculations.
