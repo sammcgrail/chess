@@ -1301,6 +1301,11 @@ timelines - list timelines`,
     return pieceType !== 'k';
   }
 
+  /** Check if a timeline is finished (checkmate, stalemate, or draw) */
+  private isTimelineFinished(tl: TimelineData): boolean {
+    return tl.chess.in_checkmate() || tl.chess.in_stalemate() || tl.chess.in_draw();
+  }
+
   /** Get all valid cross-timeline targets for a piece */
   private getCrossTimelineTargets(
     sourceTimelineId: number,
@@ -1325,6 +1330,9 @@ timelines - list timelines`,
 
       const targetTl = this.timelines[tlId];
       if (!targetTl) continue;
+
+      // Rule: Cannot move to a finished timeline (checkmate/stalemate/draw)
+      if (this.isTimelineFinished(targetTl)) continue;
 
       // Rule: Can only move to timeline where it's your turn
       if (targetTl.chess.turn() !== sourceColor) continue;
@@ -1364,6 +1372,17 @@ timelines - list timelines`,
     const sourceTl = this.timelines[sourceTimelineId];
     const targetTl = this.timelines[targetTimelineId];
     if (!sourceTl || !targetTl) return;
+
+    // SAFETY CHECK: Cannot move to a finished timeline
+    if (this.isTimelineFinished(targetTl)) {
+      console.error('[Cross-Timeline] Target timeline is finished (checkmate/stalemate/draw), blocking move', {
+        targetTimelineId,
+        inCheckmate: targetTl.chess.in_checkmate(),
+        inStalemate: targetTl.chess.in_stalemate(),
+        inDraw: targetTl.chess.in_draw(),
+      });
+      return;
+    }
 
     // RACE CONDITION CHECK: Re-validate move count synchronization
     // Cross-timeline moves require both timelines to have the same move count
