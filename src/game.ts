@@ -98,6 +98,14 @@ class GameManager {
 
     // Setup collapsible shortcuts panel
     this._setupCollapsibleShortcuts();
+
+    // Register callback to update UI when Stockfish becomes ready
+    stockfish.onReady(() => {
+      this._updateCpuUI();
+    });
+
+    // Initial CPU UI update (will show loading state if not ready)
+    this._updateCpuUI();
   }
 
   /* -- Keyboard Navigation -- */
