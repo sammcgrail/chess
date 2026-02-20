@@ -2190,8 +2190,10 @@ class Board3DManager implements IBoard3D {
     createdAt?: number;  // Timestamp for cross-timeline lines (for fade-out animation)
   }> = [];
 
-  // Duration in seconds for cross-timeline lines to fade out completely
-  private static readonly CROSS_LINE_FADE_DURATION = 8.0;
+  // Duration in seconds for cross-timeline lines to fade to minimum opacity
+  private static readonly CROSS_LINE_FADE_DURATION = 4.0;
+  // Minimum opacity - lines never fully disappear
+  private static readonly CROSS_LINE_MIN_OPACITY = 0.35;
   // Track cross-line mesh groups for efficient opacity updates (index matches _branchLineData cross entries)
   private _crossLineMeshes: Array<{ group: Group; dataIndex: number; baseOpacity: number }> = [];
   private onSquareClick:
@@ -3286,12 +3288,13 @@ class Board3DManager implements IBoard3D {
         if (!data || data.type !== 'cross') continue;
 
         const elapsed = t - (data.createdAt ?? t);
-        const timeFade = Math.max(0, 1 - elapsed / Board3DManager.CROSS_LINE_FADE_DURATION);
+        // Fade from 1.0 down to MIN_OPACITY, never fully disappear
+        const timeFade = Math.max(
+          Board3DManager.CROSS_LINE_MIN_OPACITY,
+          1 - elapsed / Board3DManager.CROSS_LINE_FADE_DURATION
+        );
         const targetOpacity = entry.baseOpacity * timeFade;
-
-        if (targetOpacity <= 0) {
-          needsCleanup = true;
-        }
+        // Lines persist forever at minimum opacity - no cleanup needed
 
         // Update opacity on all meshes in the glow tube group
         entry.group.traverse((child: Object3D) => {
@@ -3313,11 +3316,7 @@ class Board3DManager implements IBoard3D {
         });
       }
       this._needsRender = true;
-
-      // Clean up fully faded cross-timeline lines
-      if (needsCleanup) {
-        this._cleanupFadedCrossLines(t);
-      }
+      // Lines persist forever at minimum opacity - no cleanup
     }
 
     // PERFORMANCE: Only render when dirty flag is set
