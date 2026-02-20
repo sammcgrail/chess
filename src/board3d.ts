@@ -864,6 +864,56 @@ export class TimelineCol implements ITimelineCol {
       }
     }
 
+    // FINAL AUTHORITY: Remove any scene sprites at positions not in newBoardState
+    // This is the nuclear cleanup that catches all edge cases - newBoardState is the
+    // single source of truth for what pieces should exist
+    for (let i = this.group.children.length - 1; i >= 0; i--) {
+      const child = this.group.children[i];
+      if (this._isMainBoardSprite(child)) {
+        const col = Math.round(child.position.x + 3.5);
+        const row = Math.round(child.position.z + 3.5);
+        const posKey = `${row},${col}`;
+
+        // If there's no piece at this position in the authoritative board state, remove it
+        if (!newBoardState.has(posKey)) {
+          console.warn(`[Board3D.render] GHOST_CLEANUP: Removing sprite at ${posKey} not in newBoardState tl=${this.id}`);
+          this.group.remove(child);
+          spritePool.release(child as PooledSprite);
+          // Clean up _spriteMap if it still has this entry (shouldn't, but be safe)
+          if (this._spriteMap.has(posKey)) {
+            this._spriteMap.delete(posKey);
+          }
+          const idx = this.pieceMeshes.indexOf(child);
+          if (idx !== -1) {
+            this.pieceMeshes.splice(idx, 1);
+          }
+        }
+      }
+    }
+
+    // FINAL SYNC: Ensure _spriteMap exactly matches newBoardState
+    // After all cleanup, _spriteMap should have exactly the same keys as newBoardState
+    if (this._spriteMap.size !== newBoardState.size) {
+      console.warn(`[Board3D.render] FINAL_SYNC: _spriteMap.size=${this._spriteMap.size} != newBoardState.size=${newBoardState.size}, cleaning up tl=${this.id}`);
+      const keysToDelete: string[] = [];
+      this._spriteMap.forEach((sprite, posKey) => {
+        if (!newBoardState.has(posKey)) {
+          keysToDelete.push(posKey);
+        }
+      });
+      for (const posKey of keysToDelete) {
+        const sprite = this._spriteMap.get(posKey);
+        if (sprite) {
+          spritePool.release(sprite as PooledSprite);
+          const idx = this.pieceMeshes.indexOf(sprite);
+          if (idx !== -1) {
+            this.pieceMeshes.splice(idx, 1);
+          }
+        }
+        this._spriteMap.delete(posKey);
+      }
+    }
+
     // DEBUG: Validation checks
     if (DEBUG_MODE) {
       const expectedCount = newBoardState.size;
