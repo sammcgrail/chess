@@ -694,6 +694,45 @@ export class TimelineCol implements ITimelineCol {
       }
     }
 
+    // v0.1.79 MANDATORY SYNC PASS: Don't rely on diff-based removal - directly sync scene with newBoardState
+    // The ghost bug pattern: ghosts appear BETWEEN render calls, suggesting something outside render()
+    // is adding sprites, or THREE.js scene graph updates are deferred. By iterating ALL scene children
+    // and using this.group.remove() directly (not spritePool.release() which relies on parent.remove()),
+    // we ensure immediate removal.
+    const validPositionKeys = new Set(newBoardState.keys());
+    let mandatorySyncRemoved = 0;
+    const mandatorySyncRemovedPositions: string[] = [];
+    for (let i = this.group.children.length - 1; i >= 0; i--) {
+      const child = this.group.children[i];
+      if (this._isMainBoardSprite(child)) {
+        const col = Math.round(child.position.x + 3.5);
+        const row = Math.round(child.position.z + 3.5);
+        const posKey = `${row},${col}`;
+
+        if (!validPositionKeys.has(posKey)) {
+          // Ghost found! Remove directly from scene graph
+          console.warn(`[Board3D.render] MANDATORY_SYNC: Ghost sprite at ${posKey} not in valid positions, removing directly tl=${this.id}`);
+          this.group.remove(child);  // Direct removal - don't rely on spritePool.release()
+          spritePool.release(child as PooledSprite);  // Still return to pool for reuse
+
+          // Clean up tracking structures
+          if (this._spriteMap.has(posKey)) {
+            this._spriteMap.delete(posKey);
+          }
+          const idx = this.pieceMeshes.indexOf(child);
+          if (idx !== -1) {
+            this.pieceMeshes.splice(idx, 1);
+          }
+
+          mandatorySyncRemoved++;
+          mandatorySyncRemovedPositions.push(posKey);
+        }
+      }
+    }
+    if (mandatorySyncRemoved > 0) {
+      console.error(`[Board3D.render] MANDATORY_SYNC_REMOVED: ${mandatorySyncRemoved} ghost sprites at positions=[${mandatorySyncRemovedPositions.join(',')}] tl=${this.id}`);
+    }
+
     // Find what changed: removed, added, and unchanged positions
     const toRemove: string[] = [];
     const toAdd: string[] = [];
@@ -1053,6 +1092,26 @@ export class TimelineCol implements ITimelineCol {
     console.log(`[Board3D.render] RENDER_COMPLETE: tl=${this.id} finalScene=${finalSceneSprites} expected=${newBoardState.size} spriteMap=${this._spriteMap.size} pieceMeshes=${this.pieceMeshes.length} GHOSTS_REMAIN=${stillHasGhosts}`);
     if (stillHasGhosts) {
       console.error(`[Board3D.render] RENDER_COMPLETE_FAILURE: Ghost pieces STILL present after render! finalPositions=[${finalSpritePositions.join(',')}] tl=${this.id}`);
+
+      // v0.1.79: Throw visible error to make ghost bugs impossible to ignore
+      // This helps track down the root cause by failing loudly instead of silently accumulating ghosts
+      const expectedPositions = Array.from(newBoardState.keys()).sort().join(',');
+      const errorMsg = `GHOST_PIECE_BUG: Timeline ${this.id} has ${finalSceneSprites} sprites but expected ${newBoardState.size}. Scene positions: [${finalSpritePositions.join(',')}]. Expected positions: [${expectedPositions}]`;
+      console.error(errorMsg);
+
+      // Create a visible on-screen error indicator (non-blocking)
+      if (typeof document !== 'undefined') {
+        const existingError = document.getElementById('ghost-piece-error');
+        if (!existingError) {
+          const errorDiv = document.createElement('div');
+          errorDiv.id = 'ghost-piece-error';
+          errorDiv.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);background:red;color:white;padding:10px 20px;border-radius:5px;z-index:10000;font-family:monospace;font-size:12px;max-width:80%;overflow:auto;';
+          errorDiv.textContent = `GHOST BUG: TL${this.id} scene=${finalSceneSprites} expected=${newBoardState.size}`;
+          document.body.appendChild(errorDiv);
+          // Auto-remove after 5 seconds
+          setTimeout(() => errorDiv.remove(), 5000);
+        }
+      }
     }
 
     // Reset reentrant flag at end of render
