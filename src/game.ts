@@ -2721,12 +2721,12 @@ timelines - list timelines`,
     this.cpuTimer = window.setTimeout(() => this._cpuTick(), this.cpuMoveDelay);
   }
 
-  /** Check if game is completely over - all timelines in checkmate or stalemate */
+  /** Check if game is completely over - all timelines in checkmate, stalemate, or draw */
   private _cpuIsGameOver(): boolean {
     for (const key in this.timelines) {
       const tl = this.timelines[parseInt(key)];
-      // If any timeline is NOT in checkmate/stalemate, game is not over
-      if (!tl.chess.in_checkmate() && !tl.chess.in_stalemate()) {
+      // If any timeline is NOT in checkmate/stalemate/draw, game is not over
+      if (!tl.chess.in_checkmate() && !tl.chess.in_stalemate() && !tl.chess.in_draw()) {
         return false;
       }
     }
@@ -2740,10 +2740,11 @@ timelines - list timelines`,
 
     for (const key in this.timelines) {
       const tl = this.timelines[parseInt(key)];
-      // Timeline is playable if it's this color's turn AND not in checkmate/stalemate
+      // Timeline is playable if it's this color's turn AND not in checkmate/stalemate/draw
       if (tl.chess.turn() === this.cpuGlobalTurn &&
           !tl.chess.in_checkmate() &&
-          !tl.chess.in_stalemate()) {
+          !tl.chess.in_stalemate() &&
+          !tl.chess.in_draw()) {
         playable.push(tl.id);
       }
     }
@@ -2777,9 +2778,9 @@ timelines - list timelines`,
       return false;
     }
 
-    // Double-check: refuse to move if in checkmate or stalemate
-    if (tl.chess.in_checkmate() || tl.chess.in_stalemate()) {
-      console.log('[CPU] Skipping timeline', tlId, '- already in checkmate/stalemate');
+    // Double-check: refuse to move if in checkmate, stalemate, or draw
+    if (tl.chess.in_checkmate() || tl.chess.in_stalemate() || tl.chess.in_draw()) {
+      console.log('[CPU] Skipping timeline', tlId, '- already in checkmate/stalemate/draw');
       return false;
     }
 
