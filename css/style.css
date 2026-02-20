@@ -980,3 +980,16 @@ body {
 #version-info {
     color: #ffffff;
 }
+
+/* Floating version overlay in top-right corner of game view */
+#version-overlay {
+    position: fixed;
+    top: 8px;
+    right: 8px;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 10px;
+    font-family: 'Monaco', 'Menlo', monospace;
+    pointer-events: none;
+    z-index: 1000;
+    user-select: none;
+}
