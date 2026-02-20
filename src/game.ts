@@ -1000,7 +1000,53 @@ timelines - list timelines`,
     const siblingCount = Object.values(this.timelines)
       .filter(tl => tl.parentId === parentTlId).length;
     const side = siblingCount % 2 === 0 ? 1 : -1;
-    const xOffset = parentTl.xOffset + side * Board3D.TIMELINE_SPACING * Math.ceil((siblingCount + 1) / 2);
+    let xOffset = parentTl.xOffset + side * Board3D.TIMELINE_SPACING * Math.ceil((siblingCount + 1) / 2);
+
+    // OVERLAP DETECTION: Check if any existing timeline has this xOffset
+    const existingOffsets = Object.values(this.timelines).map(tl => tl.xOffset);
+    if (existingOffsets.includes(xOffset)) {
+      console.error('[BOARD_OVERLAP_BUG] Timeline xOffset collision detected!', {
+        newTimelineId: newId,
+        calculatedXOffset: xOffset,
+        parentId: parentTlId,
+        siblingCount,
+        side,
+        existingOffsets,
+        allTimelines: Object.values(this.timelines).map(tl => ({
+          id: tl.id,
+          xOffset: tl.xOffset,
+          parentId: tl.parentId,
+        })),
+      });
+      // FIX: Find a unique position by incrementing until we find an unused slot
+      const spacing = Board3D.TIMELINE_SPACING;
+      let attempts = 0;
+      while (existingOffsets.includes(xOffset) && attempts < 100) {
+        // Try alternating left/right with increasing distance
+        attempts++;
+        const distance = Math.ceil(attempts / 2) * spacing;
+        xOffset = parentTl.xOffset + (attempts % 2 === 0 ? 1 : -1) * distance;
+      }
+      console.log('[BOARD_OVERLAP_FIX] Found unique xOffset after collision:', {
+        newTimelineId: newId,
+        finalXOffset: xOffset,
+        attempts,
+      });
+    }
+
+    // DEBUG: Log all timeline positions for visibility
+    console.log('[TIMELINE_POSITIONS] Creating timeline with position:', {
+      newTimelineId: newId,
+      xOffset,
+      parentId: parentTlId,
+      siblingCount,
+      side,
+      allPositions: Object.values(this.timelines).map(tl => ({
+        id: tl.id,
+        xOffset: tl.xOffset,
+        name: tl.name,
+      })),
+    });
 
     const newTl = this._createTimeline(newId, xOffset, parentTlId, snapshotIdx, fen);
 
@@ -1669,7 +1715,53 @@ timelines - list timelines`,
     const siblingCount = Object.values(this.timelines)
       .filter(tl => tl.parentId === sourceTimelineId).length;
     const side = siblingCount % 2 === 0 ? 1 : -1;
-    const xOffset = sourceTl.xOffset + side * Board3D.TIMELINE_SPACING * Math.ceil((siblingCount + 1) / 2);
+    let xOffset = sourceTl.xOffset + side * Board3D.TIMELINE_SPACING * Math.ceil((siblingCount + 1) / 2);
+
+    // OVERLAP DETECTION: Check if any existing timeline has this xOffset
+    const existingOffsets = Object.values(this.timelines).map(tl => tl.xOffset);
+    if (existingOffsets.includes(xOffset)) {
+      console.error('[BOARD_OVERLAP_BUG] Timeline xOffset collision detected (time travel)!', {
+        newTimelineId: newId,
+        calculatedXOffset: xOffset,
+        parentId: sourceTimelineId,
+        siblingCount,
+        side,
+        existingOffsets,
+        allTimelines: Object.values(this.timelines).map(tl => ({
+          id: tl.id,
+          xOffset: tl.xOffset,
+          parentId: tl.parentId,
+        })),
+      });
+      // FIX: Find a unique position by incrementing until we find an unused slot
+      const spacing = Board3D.TIMELINE_SPACING;
+      let attempts = 0;
+      while (existingOffsets.includes(xOffset) && attempts < 100) {
+        // Try alternating left/right with increasing distance
+        attempts++;
+        const distance = Math.ceil(attempts / 2) * spacing;
+        xOffset = sourceTl.xOffset + (attempts % 2 === 0 ? 1 : -1) * distance;
+      }
+      console.log('[BOARD_OVERLAP_FIX] Found unique xOffset after collision (time travel):', {
+        newTimelineId: newId,
+        finalXOffset: xOffset,
+        attempts,
+      });
+    }
+
+    // DEBUG: Log all timeline positions for visibility
+    console.log('[TIMELINE_POSITIONS] Creating timeline with position (time travel):', {
+      newTimelineId: newId,
+      xOffset,
+      parentId: sourceTimelineId,
+      siblingCount,
+      side,
+      allPositions: Object.values(this.timelines).map(tl => ({
+        id: tl.id,
+        xOffset: tl.xOffset,
+        name: tl.name,
+      })),
+    });
 
     console.log('[Time Travel] Creating new timeline:', {
       originalFen: fen,

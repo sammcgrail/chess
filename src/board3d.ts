@@ -548,7 +548,11 @@ export class TimelineCol implements ITimelineCol {
     this.group.add(this.interLayerGroup);
 
     this._buildBoard();
+    this._addDebugPositionLabel();
     scene.add(this.group);
+
+    // Log timeline creation with position
+    console.log(`[Board3D] Timeline ${id} created at xOffset=${xOffset}`);
   }
 
   private _toSq(r: number, c: number): string {
@@ -655,6 +659,37 @@ export class TimelineCol implements ITimelineCol {
       rk.scale.set(0.35, 0.35, 0.35);
       this.group.add(rk);
     }
+  }
+
+  /** Add debug label showing timeline ID and xOffset above the board */
+  private _addDebugPositionLabel(): void {
+    // Create a larger canvas for the position indicator
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d')!;
+
+    // Draw background with slight transparency
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.roundRect(4, 4, 248, 56, 8);
+    ctx.fill();
+
+    // Draw text
+    ctx.font = 'bold 24px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#00ffff';  // Cyan color for visibility
+    ctx.fillText(`TL:${this.id} X:${this.xOffset}`, 128, 32);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+    const sprite = new THREE.Sprite(material);
+
+    // Position above the board (z = -5 puts it behind/above the board in view)
+    sprite.position.set(0, 0.1, -5.5);
+    sprite.scale.set(2.5, 0.625, 1);  // Wider than tall to match canvas aspect ratio
+
+    this.group.add(sprite);
   }
 
   /* render pieces on current board - OPTIMIZED with diff-based updates and sprite pooling */
@@ -2909,6 +2944,37 @@ class Board3DManager implements IBoard3D {
       e.preventDefault();
       this._panKeys[key] = true;
     }
+
+    // Debug key: 'p' to log all timeline positions
+    if (e.key.toLowerCase() === 'p' && e.shiftKey) {
+      this._debugLogAllTimelinePositions();
+    }
+  }
+
+  /** Debug helper: Log all timeline positions to console */
+  private _debugLogAllTimelinePositions(): void {
+    const positions = Object.values(this.timelineCols).map(col => ({
+      id: col.id,
+      xOffset: col.xOffset,
+      groupX: col.group.position.x,
+    }));
+
+    // Sort by xOffset for clarity
+    positions.sort((a, b) => a.xOffset - b.xOffset);
+
+    console.log('=== TIMELINE POSITIONS DEBUG ===');
+    console.table(positions);
+
+    // Check for duplicates
+    const offsets = positions.map(p => p.xOffset);
+    const duplicates = offsets.filter((v, i) => offsets.indexOf(v) !== i);
+    if (duplicates.length > 0) {
+      console.error('[DUPLICATE_POSITIONS] Found timelines at same xOffset!', duplicates);
+    } else {
+      console.log('[POSITIONS_OK] All timelines have unique xOffset values');
+    }
+
+    console.log('================================');
   }
 
   private _onKeyUp(e: KeyboardEvent): void {
