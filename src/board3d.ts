@@ -867,12 +867,16 @@ export class TimelineCol implements ITimelineCol {
     // FINAL AUTHORITY: Remove any scene sprites at positions not in newBoardState
     // This is the nuclear cleanup that catches all edge cases - newBoardState is the
     // single source of truth for what pieces should exist
+    // ALWAYS LOG: Track this pass to confirm cleanup is running
+    let ghostCleanupRemovedCount = 0;
+    const ghostCleanupPositionsBefore: string[] = [];
     for (let i = this.group.children.length - 1; i >= 0; i--) {
       const child = this.group.children[i];
       if (this._isMainBoardSprite(child)) {
         const col = Math.round(child.position.x + 3.5);
         const row = Math.round(child.position.z + 3.5);
         const posKey = `${row},${col}`;
+        ghostCleanupPositionsBefore.push(posKey);
 
         // If there's no piece at this position in the authoritative board state, remove it
         if (!newBoardState.has(posKey)) {
@@ -887,13 +891,18 @@ export class TimelineCol implements ITimelineCol {
           if (idx !== -1) {
             this.pieceMeshes.splice(idx, 1);
           }
+          ghostCleanupRemovedCount++;
         }
       }
     }
+    // ALWAYS LOG: Confirm GHOST_CLEANUP ran, even if nothing removed
+    console.log(`[Board3D.render] GHOST_CLEANUP_PASS: tl=${this.id} scanned=${ghostCleanupPositionsBefore.length} removed=${ghostCleanupRemovedCount} positions=[${ghostCleanupPositionsBefore.join(',')}]`);
 
     // FINAL SYNC: Ensure _spriteMap exactly matches newBoardState
-    // After all cleanup, _spriteMap should have exactly the same keys as newBoardState
-    if (this._spriteMap.size !== newBoardState.size) {
+    // ALWAYS LOG: Report sync status even if sizes match
+    const finalSyncMismatch = this._spriteMap.size !== newBoardState.size;
+    console.log(`[Board3D.render] FINAL_SYNC_CHECK: tl=${this.id} spriteMap=${this._spriteMap.size} newBoardState=${newBoardState.size} mismatch=${finalSyncMismatch}`);
+    if (finalSyncMismatch) {
       console.warn(`[Board3D.render] FINAL_SYNC: _spriteMap.size=${this._spriteMap.size} != newBoardState.size=${newBoardState.size}, cleaning up tl=${this.id}`);
       const keysToDelete: string[] = [];
       this._spriteMap.forEach((sprite, posKey) => {
@@ -912,6 +921,48 @@ export class TimelineCol implements ITimelineCol {
         }
         this._spriteMap.delete(posKey);
       }
+    }
+
+    // VERIFICATION PASS: Re-count scene sprites AFTER all cleanup
+    // If still mismatched, do ANOTHER explicit pass with detailed logging
+    let postCleanupSceneSprites = 0;
+    const postCleanupSpritePositions: string[] = [];
+    for (let i = 0; i < this.group.children.length; i++) {
+      const child = this.group.children[i];
+      if (this._isMainBoardSprite(child)) {
+        postCleanupSceneSprites++;
+        const col = Math.round(child.position.x + 3.5);
+        const row = Math.round(child.position.z + 3.5);
+        postCleanupSpritePositions.push(`${row},${col}`);
+      }
+    }
+    console.log(`[Board3D.render] VERIFICATION_PASS: tl=${this.id} sceneSprites=${postCleanupSceneSprites} expected=${newBoardState.size} positions=[${postCleanupSpritePositions.join(',')}]`);
+
+    // EMERGENCY SECOND CLEANUP: If we STILL have more sprites than pieces, something is very wrong
+    // Do explicit removal by iterating scene and force-removing anything not in newBoardState
+    if (postCleanupSceneSprites > newBoardState.size) {
+      console.error(`[Board3D.render] EMERGENCY_CLEANUP: Still have ghosts after cleanup! scene=${postCleanupSceneSprites} expected=${newBoardState.size} tl=${this.id}`);
+      let emergencyRemoved = 0;
+      for (let i = this.group.children.length - 1; i >= 0; i--) {
+        const child = this.group.children[i];
+        if (this._isMainBoardSprite(child)) {
+          const col = Math.round(child.position.x + 3.5);
+          const row = Math.round(child.position.z + 3.5);
+          const posKey = `${row},${col}`;
+          if (!newBoardState.has(posKey)) {
+            console.error(`[Board3D.render] EMERGENCY_REMOVING: posKey=${posKey} x=${child.position.x} y=${child.position.y} z=${child.position.z} tl=${this.id}`);
+            // Force removal from scene using explicit parent removal
+            if (child.parent) {
+              child.parent.remove(child);
+            } else {
+              this.group.remove(child);
+            }
+            spritePool.release(child as PooledSprite);
+            emergencyRemoved++;
+          }
+        }
+      }
+      console.error(`[Board3D.render] EMERGENCY_CLEANUP_DONE: removed=${emergencyRemoved} tl=${this.id}`);
     }
 
     // DEBUG: Validation checks
@@ -958,6 +1009,24 @@ export class TimelineCol implements ITimelineCol {
           duplicates,
         });
       }
+    }
+
+    // RENDER_COMPLETE: Final counts AFTER all cleanup to verify bug is actually fixed
+    let finalSceneSprites = 0;
+    const finalSpritePositions: string[] = [];
+    for (let i = 0; i < this.group.children.length; i++) {
+      const child = this.group.children[i];
+      if (this._isMainBoardSprite(child)) {
+        finalSceneSprites++;
+        const col = Math.round(child.position.x + 3.5);
+        const row = Math.round(child.position.z + 3.5);
+        finalSpritePositions.push(`${row},${col}`);
+      }
+    }
+    const stillHasGhosts = finalSceneSprites > newBoardState.size;
+    console.log(`[Board3D.render] RENDER_COMPLETE: tl=${this.id} finalScene=${finalSceneSprites} expected=${newBoardState.size} spriteMap=${this._spriteMap.size} pieceMeshes=${this.pieceMeshes.length} GHOSTS_REMAIN=${stillHasGhosts}`);
+    if (stillHasGhosts) {
+      console.error(`[Board3D.render] RENDER_COMPLETE_FAILURE: Ghost pieces STILL present after render! finalPositions=[${finalSpritePositions.join(',')}] tl=${this.id}`);
     }
 
     // Reset reentrant flag at end of render
