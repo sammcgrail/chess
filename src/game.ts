@@ -39,7 +39,7 @@ import type {
   Square,
 } from './types';
 import { TimelineTransaction } from './transaction';
-import { stockfish } from './stockfish';
+import { stockfish, type StockfishMove } from './stockfish';
 
 class GameManager {
   private timelines: Record<number, TimelineData> = {};
@@ -282,25 +282,7 @@ class GameManager {
       });
     }
 
-    // Per-piece portal sliders for white
-    const pieceTypes = ['q', 'r', 'b', 'n'] as const;
-    for (const pt of pieceTypes) {
-      const slider = document.getElementById(`cpu-white-portal-${pt}`) as HTMLInputElement | null;
-      if (slider) {
-        slider.addEventListener('input', () => {
-          this.cpuWhitePortalBias[pt] = parseInt(slider.value) / 100;
-        });
-      }
-    }
-
-    const whiteCapture = document.getElementById('cpu-white-capture') as HTMLInputElement | null;
-    if (whiteCapture) {
-      whiteCapture.addEventListener('input', () => {
-        this.cpuSetWhiteCapturePreference(parseInt(whiteCapture.value) / 100);
-      });
-    }
-
-    // Black CPU controls
+    // Black CPU toggle
     const blackToggle = document.getElementById('cpu-black-toggle');
     if (blackToggle) {
       blackToggle.addEventListener('click', () => {
@@ -309,20 +291,49 @@ class GameManager {
       });
     }
 
-    // Per-piece portal sliders for black
+    // Unified 5D controls (apply to both colors)
+    const crossTimelineSlider = document.getElementById('cpu-cross-timeline') as HTMLInputElement | null;
+    const crossTimelineValue = document.getElementById('cpu-cross-timeline-value');
+    if (crossTimelineSlider) {
+      crossTimelineSlider.addEventListener('input', () => {
+        const val = parseInt(crossTimelineSlider.value);
+        this.cpuCrossTimelineChance = val / 100;
+        if (crossTimelineValue) crossTimelineValue.textContent = `${val}%`;
+      });
+    }
+
+    const timeTravelSlider = document.getElementById('cpu-time-travel') as HTMLInputElement | null;
+    const timeTravelValue = document.getElementById('cpu-time-travel-value');
+    if (timeTravelSlider) {
+      timeTravelSlider.addEventListener('input', () => {
+        const val = parseInt(timeTravelSlider.value);
+        this.cpuTimeTravelChance = val / 100;
+        if (timeTravelValue) timeTravelValue.textContent = `${val}%`;
+      });
+    }
+
+    // Unified per-piece portal sliders (apply to both colors)
+    const pieceTypes = ['q', 'r', 'b', 'n'] as const;
     for (const pt of pieceTypes) {
-      const slider = document.getElementById(`cpu-black-portal-${pt}`) as HTMLInputElement | null;
+      const slider = document.getElementById(`cpu-portal-${pt}`) as HTMLInputElement | null;
       if (slider) {
         slider.addEventListener('input', () => {
-          this.cpuBlackPortalBias[pt] = parseInt(slider.value) / 100;
+          const val = parseInt(slider.value) / 100;
+          this.cpuWhitePortalBias[pt] = val;
+          this.cpuBlackPortalBias[pt] = val;
+          // Update the label
+          const span = slider.nextElementSibling;
+          if (span) span.textContent = slider.value;
         });
       }
     }
 
-    const blackCapture = document.getElementById('cpu-black-capture') as HTMLInputElement | null;
-    if (blackCapture) {
-      blackCapture.addEventListener('input', () => {
-        this.cpuSetBlackCapturePreference(parseInt(blackCapture.value) / 100);
+    // Speed slider display
+    const speedSlider2 = document.getElementById('cpu-speed') as HTMLInputElement | null;
+    const speedValue = document.getElementById('cpu-speed-value');
+    if (speedSlider2 && speedValue) {
+      speedSlider2.addEventListener('input', () => {
+        speedValue.textContent = `${speedSlider2.value}ms`;
       });
     }
 
@@ -333,6 +344,36 @@ class GameManager {
         if (this.cpuEnabled && this.cpuCameraFollow) {
           this.cpuCameraFollow = false;
           this._updateCpuUI();
+        }
+      });
+    }
+
+    // Stockfish controls
+    const sfToggle = document.getElementById('cpu-stockfish-toggle');
+    if (sfToggle) {
+      sfToggle.addEventListener('click', () => this.toggleStockfish());
+    }
+
+    const sfSkillSlider = document.getElementById('cpu-stockfish-skill') as HTMLInputElement | null;
+    const sfSkillValue = document.getElementById('cpu-stockfish-skill-value');
+    if (sfSkillSlider) {
+      sfSkillSlider.addEventListener('input', () => {
+        const val = parseInt(sfSkillSlider.value);
+        this.setStockfishSkill(val);
+        if (sfSkillValue) {
+          sfSkillValue.textContent = val.toString();
+        }
+      });
+    }
+
+    const sfDepthSlider = document.getElementById('cpu-stockfish-depth') as HTMLInputElement | null;
+    const sfDepthValue = document.getElementById('cpu-stockfish-depth-value');
+    if (sfDepthSlider) {
+      sfDepthSlider.addEventListener('input', () => {
+        const val = parseInt(sfDepthSlider.value);
+        this.setStockfishDepth(val);
+        if (sfDepthValue) {
+          sfDepthValue.textContent = val.toString();
         }
       });
     }
@@ -2373,8 +2414,8 @@ timelines - list timelines`,
       html +=
         '<div class="move-pair">' +
         '<span class="move-number">' + num + '.</span>' +
-        '<span class="move">' + white + '</span>' +
-        '<span class="move">' + black + '</span></div>';
+        this._formatMoveWithTooltip(white) +
+        this._formatMoveWithTooltip(black) + '</div>';
     }
     // Only update DOM if content changed (avoids unnecessary re-renders)
     if (html !== this._lastMoveListHtml) {
@@ -2382,6 +2423,51 @@ timelines - list timelines`,
       movesEl.scrollTop = movesEl.scrollHeight;
       this._lastMoveListHtml = html;
     }
+  }
+
+  /** Format a move SAN with tooltips for cross-timeline/time-travel notation */
+  private _formatMoveWithTooltip(san: string): string {
+    if (!san) return '<span class="move"></span>';
+
+    // Cross-timeline moves: Qd4→T2 (piece moves TO timeline) or Qd4←T1 (piece arrives FROM timeline)
+    // Time travel moves: Qd4⟳T3 (departure) or Qd4⟳←T1 (arrival via time travel)
+    let tooltip = '';
+    let cssClass = 'move';
+
+    if (san.includes('⟳←T')) {
+      // Time travel arrival: piece arrived via time travel from another timeline
+      const match = san.match(/⟳←T(\d+)/);
+      if (match) {
+        tooltip = `Piece arrives via time travel from Timeline ${match[1]}`;
+        cssClass += ' time-travel';
+      }
+    } else if (san.includes('⟳T')) {
+      // Time travel departure: piece time travels to a past turn
+      const match = san.match(/⟳T(\d+)/);
+      if (match) {
+        tooltip = `Piece time travels to turn ${match[1]} (creates new timeline)`;
+        cssClass += ' time-travel';
+      }
+    } else if (san.includes('→T')) {
+      // Cross-timeline departure: piece moves TO another timeline
+      const match = san.match(/→T(\d+)/);
+      if (match) {
+        tooltip = `Piece moves TO Timeline ${match[1]}`;
+        cssClass += ' cross-timeline';
+      }
+    } else if (san.includes('←T')) {
+      // Cross-timeline arrival: piece arrives FROM another timeline
+      const match = san.match(/←T(\d+)/);
+      if (match) {
+        tooltip = `Piece arrives FROM Timeline ${match[1]}`;
+        cssClass += ' cross-timeline';
+      }
+    }
+
+    if (tooltip) {
+      return `<span class="${cssClass}" title="${tooltip}">${san}</span>`;
+    }
+    return `<span class="${cssClass}">${san}</span>`;
   }
 
   updateTimelineList(): void {
@@ -2721,9 +2807,18 @@ timelines - list timelines`,
   private cpuWhiteCapturePreference = 0.7;
   private cpuBlackCapturePreference = 0.7;
 
-  // Per-piece portal biases (per color)
-  private cpuWhitePortalBias: Record<string, number> = { q: 0.3, r: 0.2, b: 0.15, n: 0.1 };
-  private cpuBlackPortalBias: Record<string, number> = { q: 0.3, r: 0.2, b: 0.15, n: 0.1 };
+  // Per-piece portal biases (per color) - higher = more aggressive with 5D moves
+  private cpuWhitePortalBias: Record<string, number> = { q: 0.5, r: 0.4, b: 0.35, n: 0.3 };
+  private cpuBlackPortalBias: Record<string, number> = { q: 0.5, r: 0.4, b: 0.35, n: 0.3 };
+
+  // 5D Chess aggression settings
+  private cpuCrossTimelineChance = 0.6;  // Base chance for cross-timeline moves (0-1)
+  private cpuTimeTravelChance = 0.4;     // Base chance for time travel moves (0-1)
+
+  // Stockfish settings
+  private cpuUseStockfish = true;  // Use Stockfish when available
+  private cpuStockfishSkill = 10;  // Skill level 0-20
+  private cpuStockfishDepth = 10;  // Search depth 1-20
 
   /** Start CPU auto-play mode */
   cpuStart(): void {
@@ -3001,8 +3096,60 @@ timelines - list timelines`,
       return true;
     }
 
-    // Otherwise, pick a random legal move (with preference for captures based on setting)
-    const captures = moves.filter(m => m.captured);
+    // Use Stockfish for move selection if available, otherwise fall back to random
+    this._selectCpuMove(tlId, tl.chess.fen(), moves, capturePreference, isWhite).then((move) => {
+      if (!move) {
+        console.warn('[CPU] No move selected, skipping');
+        return;
+      }
+
+      // Show preview before executing
+      const col = Board3D.getTimeline(tlId);
+      if (col) {
+        col.showCpuMovePreview(move.from, move.to, isWhite, false);
+      }
+
+      // Store pending move and execute after tiny pause (200ms for normal moves)
+      this.cpuPendingMove = { tlId, move, isTimeTravel: false, isCrossTimeline: false };
+
+      window.setTimeout(() => this._cpuExecutePendingMove(), 200);
+    });
+
+    return true;
+  }
+
+  /** Select a CPU move using Stockfish or random fallback */
+  private async _selectCpuMove(
+    tlId: number,
+    fen: string,
+    moves: ChessMove[],
+    capturePreference: number,
+    _isWhite: boolean
+  ): Promise<ChessMove | null> {
+    // Try Stockfish first if enabled
+    if (this.cpuUseStockfish && stockfish.available) {
+      try {
+        const sfMove = await stockfish.getBestMove(fen, this.cpuStockfishDepth);
+        if (sfMove) {
+          // Find matching move in legal moves list
+          const matchingMove = moves.find(
+            (m) => m.from === sfMove.from && m.to === sfMove.to
+          );
+          if (matchingMove) {
+            // If Stockfish suggests a promotion, use it
+            if (sfMove.promotion) {
+              matchingMove.promotion = sfMove.promotion as 'n' | 'b' | 'r' | 'q';
+            }
+            return matchingMove;
+          }
+        }
+      } catch (error) {
+        console.warn('[CPU] Stockfish error, falling back to random:', error);
+      }
+    }
+
+    // Fallback: pick a random legal move (with preference for captures)
+    const captures = moves.filter((m) => m.captured);
     let move: ChessMove;
 
     if (captures.length > 0 && Math.random() < capturePreference) {
@@ -3011,17 +3158,7 @@ timelines - list timelines`,
       move = moves[Math.floor(Math.random() * moves.length)];
     }
 
-    // Show preview before executing
-    const col = Board3D.getTimeline(tlId);
-    if (col) {
-      col.showCpuMovePreview(move.from, move.to, isWhite, false);
-    }
-
-    // Store pending move and execute after tiny pause (200ms for normal moves)
-    this.cpuPendingMove = { tlId, move, isTimeTravel: false, isCrossTimeline: false };
-
-    window.setTimeout(() => this._cpuExecutePendingMove(), 200);
-    return true;
+    return move;
   }
 
   /** Execute the pending CPU move after preview delay */
@@ -3123,26 +3260,43 @@ timelines - list timelines`,
     return null;
   }
 
-  /** Check if CPU has a cross-timeline opportunity on this timeline */
+  /**
+   * 5D-Aware CPU: Check for cross-timeline opportunities with strategic evaluation.
+   * Considers board evaluations across ALL timelines to decide when to cross.
+   */
   private _cpuCheckCrossTimeline(tlId: number): { targetTimelineId: number; square: Square; piece: Piece; isCapture: boolean } | null {
     const tl = this.timelines[tlId];
     if (!tl) return null;
 
+    const timelineIds = Object.keys(this.timelines).map(Number);
     // Need at least 2 timelines to cross
-    if (Object.keys(this.timelines).length < 2) return null;
+    if (timelineIds.length < 2) return null;
 
     const color = tl.chess.turn();
     const board = tl.chess.board();
     const isWhite = color === 'w';
     const portalBiases = isWhite ? this.cpuWhitePortalBias : this.cpuBlackPortalBias;
 
-    // Collect all cross-timeline opportunities
+    // 5D AWARENESS: Evaluate material balance on all timelines
+    const timelineEvals: Record<number, number> = {};
+    for (const id of timelineIds) {
+      const timeline = this.timelines[id];
+      if (timeline) {
+        timelineEvals[id] = this._evaluateMaterialBalance(timeline.chess, color);
+      }
+    }
+
+    // Current board evaluation (positive = winning, negative = losing)
+    const sourceEval = timelineEvals[tlId] || 0;
+
+    // Collect all cross-timeline opportunities with strategic scoring
     const opportunities: Array<{
       targetTimelineId: number;
       square: Square;
       piece: Piece;
       isCapture: boolean;
       bias: number;
+      strategicScore: number;
     }> = [];
 
     // Find pieces that can cross timelines (all except king)
@@ -3150,19 +3304,56 @@ timelines - list timelines`,
       for (let c = 0; c < 8; c++) {
         const piece = board[r][c];
         if (piece && piece.type !== 'k' && piece.color === color) {
-          const bias = portalBiases[piece.type] || 0.1;  // Default 10% for pieces without explicit bias
-          if (bias <= 0) continue;
+          const baseBias = portalBiases[piece.type] || 0.1;
+          if (baseBias <= 0) continue;
 
           const square = (String.fromCharCode(97 + c) + (8 - r)) as Square;
           const targets = this.getCrossTimelineTargets(tlId, square, piece);
 
           for (const target of targets) {
+            const targetEval = timelineEvals[target.targetTimelineId] || 0;
+
+            // Strategic scoring based on 5D chess awareness:
+            // 1. If source board is LOSING and target is WINNING: HIGH priority (send reinforcements)
+            // 2. If source board is WINNING and target is LOSING: MEDIUM priority (press advantage)
+            // 3. Captures are always valuable
+            // 4. Sending to boards where we're already winning = build overwhelming force
+
+            let strategicScore = 0;
+
+            // Capture bonus (very valuable in multi-board chess)
+            if (target.isCapture) {
+              strategicScore += 3;
+            }
+
+            // Piece value for the crossing piece
+            const pieceValues: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9 };
+            const pieceValue = pieceValues[piece.type] || 1;
+
+            // 5D tactical evaluation
+            if (sourceEval > 3 && targetEval < -1) {
+              // We're winning here, losing there - send reinforcements!
+              strategicScore += 4;
+            } else if (sourceEval < -1 && targetEval > 1) {
+              // We're losing here but winning there - escape valuable pieces
+              strategicScore += 2 + (pieceValue > 3 ? 2 : 0);
+            } else if (targetEval > 2) {
+              // Target board is favorable - build overwhelming force
+              strategicScore += 2;
+            }
+
+            // Bonus for high-value pieces crossing (queens, rooks)
+            if (pieceValue >= 5) {
+              strategicScore += 1;
+            }
+
             opportunities.push({
               targetTimelineId: target.targetTimelineId,
               square,
               piece,
               isCapture: target.isCapture,
-              bias,
+              bias: baseBias,
+              strategicScore,
             });
           }
         }
@@ -3171,17 +3362,29 @@ timelines - list timelines`,
 
     if (opportunities.length === 0) return null;
 
-    // Prefer captures, use highest-bias piece type
-    const captures = opportunities.filter(o => o.isCapture);
-    const pool = captures.length > 0 ? captures : opportunities;
+    // Sort by strategic score (highest first), then by capture, then by bias
+    opportunities.sort((a, b) => {
+      if (b.strategicScore !== a.strategicScore) return b.strategicScore - a.strategicScore;
+      if (a.isCapture !== b.isCapture) return a.isCapture ? -1 : 1;
+      return b.bias - a.bias;
+    });
 
-    // Sort by bias (highest first)
-    pool.sort((a, b) => b.bias - a.bias);
+    // 5D Aggressive mode: use slider-controlled cross-timeline chance
+    for (const opp of opportunities) {
+      // Base chance from slider, plus strategic bonus
+      const baseChance = this.cpuCrossTimelineChance;
+      const strategicBonus = opp.strategicScore * 0.10; // Each strategic point adds 10%
+      const totalChance = Math.min(0.95, baseChance + strategicBonus);
 
-    // Pick the first opportunity that passes its bias check (lower chance than time travel)
-    for (const opp of pool) {
-      // Cross-timeline is less dramatic than time travel, use half the bias
-      if (Math.random() < opp.bias * 0.5) {
+      if (Math.random() < totalChance) {
+        console.log('[CPU 5D] Cross-timeline move!', {
+          from: tlId,
+          to: opp.targetTimelineId,
+          piece: opp.piece.type,
+          isCapture: opp.isCapture,
+          strategicScore: opp.strategicScore,
+          chance: Math.round(totalChance * 100) + '%',
+        });
         return {
           targetTimelineId: opp.targetTimelineId,
           square: opp.square,
@@ -3192,6 +3395,32 @@ timelines - list timelines`,
     }
 
     return null;
+  }
+
+  /** Evaluate material balance for a position (positive = color is winning) */
+  private _evaluateMaterialBalance(chess: ChessInstance, color: PieceColor): number {
+    const board = chess.board();
+    const pieceValues: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+    let whiteScore = 0;
+    let blackScore = 0;
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const piece = board[r][c];
+        if (piece) {
+          const value = pieceValues[piece.type] || 0;
+          if (piece.color === 'w') {
+            whiteScore += value;
+          } else {
+            blackScore += value;
+          }
+        }
+      }
+    }
+
+    // Return score relative to the specified color
+    return color === 'w' ? whiteScore - blackScore : blackScore - whiteScore;
   }
 
   /** Update CPU UI elements */
@@ -3233,6 +3462,29 @@ timelines - list timelines`,
         stockfishStatus.classList.remove('ready', 'error');
       }
     }
+  }
+
+  /** Set Stockfish skill level (0-20) */
+  setStockfishSkill(level: number): void {
+    this.cpuStockfishSkill = Math.max(0, Math.min(20, level));
+    stockfish.setSkillLevel(this.cpuStockfishSkill);
+  }
+
+  /** Set Stockfish search depth (1-20) */
+  setStockfishDepth(depth: number): void {
+    this.cpuStockfishDepth = Math.max(1, Math.min(20, depth));
+    stockfish.setSearchDepth(this.cpuStockfishDepth);
+  }
+
+  /** Toggle Stockfish usage */
+  toggleStockfish(): void {
+    this.cpuUseStockfish = !this.cpuUseStockfish;
+    this._updateCpuUI();
+  }
+
+  /** Check if Stockfish is available */
+  isStockfishAvailable(): boolean {
+    return stockfish.available;
   }
 }
 
