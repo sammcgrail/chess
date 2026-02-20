@@ -452,6 +452,11 @@ class HeadlessGame {
       return { success: false, error: 'Timelines not synchronized' };
     }
 
+    // Cannot move to a finished timeline (checkmate/stalemate/draw)
+    if (targetTl.chess.game_over()) {
+      return { success: false, error: 'Target timeline is finished (checkmate/stalemate/draw)' };
+    }
+
     // Check target square
     const targetPiece = targetTl.chess.get(square);
     if (targetPiece && (targetPiece.color === piece.color || targetPiece.type === 'k')) {
@@ -826,6 +831,67 @@ suite.test('cross-timeline: turn must match on both timelines', () => {
   const result = game.makeCrossTimelineMove(0, 0, 'd1');  // White queen
   suite.assertFalse(result.success);
   suite.assertTrue(result.error?.includes('turn') ?? false);
+});
+
+suite.test('cross-timeline: blocked when target timeline is checkmated', () => {
+  const game = new HeadlessGame();
+
+  // Play fool's mate on timeline 0 to checkmate white
+  game.makeMove(0, 'f2', 'f3');
+  game.makeMove(0, 'e7', 'e5');
+  game.makeMove(0, 'g2', 'g4');
+  game.makeMove(0, 'd8', 'h4');  // Checkmate!
+
+  // Verify timeline 0 is checkmated
+  const tl0 = game.getTimeline(0);
+  suite.assertTrue(tl0?.chess.in_checkmate());
+
+  // Create a second timeline at starting position (simulating a branch)
+  // For this test, we manually create it
+  (game as any)._createTimeline(1, null, -1, null);
+
+  // Play some moves on timeline 1 to sync move counts (4 moves like timeline 0)
+  game.makeMove(1, 'e2', 'e4');
+  game.makeMove(1, 'e7', 'e5');
+  game.makeMove(1, 'd2', 'd4');
+  game.makeMove(1, 'd7', 'd5');  // Now both have 4 moves, both white's turn
+
+  // Try to move queen from timeline 1 to checkmated timeline 0
+  const result = game.makeCrossTimelineMove(1, 0, 'd1');  // White queen
+
+  // Should be blocked because timeline 0 is checkmated
+  suite.assertFalse(result.success);
+  suite.assertTrue(result.error?.includes('finished') ?? false);
+});
+
+suite.test('cross-timeline: blocked when target timeline is stalemated', () => {
+  const game = new HeadlessGame();
+
+  // Set up a stalemate position via FEN
+  // Black king on h8, White king on f7, White queen on g6 - black to move, stalemate
+  const stalemateFen = '7k/5K2/6Q1/8/8/8/8/8 b - - 0 1';
+  const tl0 = game.getTimeline(0);
+  tl0?.chess.load(stalemateFen);
+  tl0!.moveHistory = [{} as Move, {} as Move, {} as Move, {} as Move];  // Fake 4 moves
+
+  // Verify stalemate
+  suite.assertTrue(tl0?.chess.in_stalemate());
+
+  // Create second timeline with black to move (to match turns)
+  // Use a FEN where it's black's turn with 4 moves already made
+  const blackToMoveFen = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2';
+  (game as any)._createTimeline(1, null, -1, blackToMoveFen);
+  const tl1 = game.getTimeline(1);
+  tl1!.moveHistory = [{} as Move, {} as Move, {} as Move, {} as Move];  // Fake 4 moves to sync
+
+  // Verify turn matches (both black to move)
+  suite.assertEqual(tl0?.chess.turn(), 'b');
+  suite.assertEqual(tl1?.chess.turn(), 'b');
+
+  // Try cross-timeline move of black queen from timeline 1 to stalemated timeline 0
+  const result = game.makeCrossTimelineMove(1, 0, 'd8');  // Black queen
+  suite.assertFalse(result.success);
+  suite.assertTrue(result.error?.includes('finished') ?? false);
 });
 
 // --- Global Game Over Tests ---
