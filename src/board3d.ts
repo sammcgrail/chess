@@ -2040,21 +2040,22 @@ export class TimelineCol implements ITimelineCol {
     });
   }
 
-  /** Set board state glow (checkmate = red, draw = grey, none = clear) */
+  /** Set board state glow (checkmate = red, draw = amber/orange, none = clear) */
   setBoardGlow(state: 'checkmate' | 'draw' | 'none'): void {
     let glowColor: Color | null = null;
     if (state === 'checkmate') {
       glowColor = new THREE.Color(0xff3333);
     } else if (state === 'draw') {
-      glowColor = new THREE.Color(0x888888);
+      glowColor = new THREE.Color(0xffa500);  // Amber/orange for draw - more noticeable than grey
     }
 
     // Apply glow to all square meshes on the main board
+    const glowIntensity = state === 'draw' ? 0.4 : 0.3;  // Slightly stronger for draw
     for (const mesh of this.squareMeshes) {
       const mat = mesh.material as MeshStandardMaterial;
       if (glowColor) {
         mat.emissive = glowColor;
-        mat.emissiveIntensity = 0.3;
+        mat.emissiveIntensity = glowIntensity;
       } else {
         mat.emissive = new THREE.Color(0);
         mat.emissiveIntensity = 0;
