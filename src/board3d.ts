@@ -19,6 +19,8 @@ import type {
   IBoard3D,
 } from './types';
 
+import { stockfish } from './stockfish';
+
 // OrbitControls from CDN is attached to global THREE
 interface OrbitControlsInstance {
   enableDamping: boolean;
@@ -2493,6 +2495,8 @@ class Board3DManager implements IBoard3D {
           cancelAnimationFrame(this._animationFrameId);
           this._animationFrameId = null;
         }
+        // Terminate stockfish worker to avoid hanging the tab
+        stockfish.terminate();
       }
     };
 
@@ -3568,6 +3572,9 @@ class Board3DManager implements IBoard3D {
       cancelAnimationFrame(this._animationFrameId);
       this._animationFrameId = null;
     }
+
+    // Terminate stockfish worker
+    stockfish.terminate();
 
     // Clear all timelines first
     this.clearAll();
