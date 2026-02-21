@@ -636,12 +636,27 @@ class GameManager {
     const panel = document.getElementById('timeline-panel');
     const header = document.getElementById('timeline-header');
     const resizeHandle = document.getElementById('timeline-resize');
+    const listEl = document.getElementById('timeline-list');
     if (!panel || !header) return;
 
     // Collapse/expand on header click
     header.addEventListener('click', () => {
       panel.classList.toggle('collapsed');
     });
+
+    // Event delegation for timeline item clicks - always works even during DOM updates
+    if (listEl) {
+      listEl.addEventListener('click', (e: Event) => {
+        const target = e.target as HTMLElement;
+        // Find the closest .tl-item parent
+        const item = target.closest('.tl-item:not(.empty)') as HTMLElement | null;
+        if (item && item.dataset.tlId !== undefined) {
+          const tlId = parseInt(item.dataset.tlId);
+          console.log('[TIMELINE_CLICK_DELEGATED] Clicked timeline', tlId, 'current active:', this.activeTimelineId);
+          this.setActiveTimeline(tlId);
+        }
+      });
+    }
 
     // Resize functionality
     if (!resizeHandle) return;
@@ -2926,17 +2941,7 @@ timelines - list timelines`,
 
       listEl.innerHTML = html;
       this._lastTimelineStructure = structureKey;
-
-      // Attach click handlers
-      const items = listEl.querySelectorAll('.tl-item:not(.empty)');
-      items.forEach((item) => {
-        const tlId = parseInt((item as HTMLElement).dataset.tlId || '0');
-        item.addEventListener('click', (e) => {
-          e.stopPropagation(); // Prevent any bubbling issues
-          console.log('[TIMELINE_CLICK] Clicked timeline', tlId, 'current active:', this.activeTimelineId);
-          this.setActiveTimeline(tlId);
-        });
-      });
+      // Click handlers are now managed via event delegation in _setupTimelinePanel()
     } else {
       // Just update active state and move counts in place (no scroll jump)
       const items = listEl.querySelectorAll('.tl-item');

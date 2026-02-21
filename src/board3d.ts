@@ -2297,21 +2297,21 @@ class Board3DManager implements IBoard3D {
     type: 'portal' | 'capture';
   }> = [];
 
-  // Use WHITE CHESS symbols (outlined) for both colors to avoid emoji rendering
-  // The fill/stroke colors in _pieceTexture() distinguish white vs black pieces
+  // WHITE pieces use outlined Unicode symbols (♔♕♖♗♘♙)
+  // BLACK pieces use FILLED Unicode symbols (♚♛♜♝♞♟) for maximum distinction
   readonly PIECE_CHARS: PieceCharMap = {
-    K: '\u2654',  // ♔ WHITE CHESS KING
+    K: '\u2654',  // ♔ WHITE CHESS KING (outlined)
     Q: '\u2655',  // ♕ WHITE CHESS QUEEN
     R: '\u2656',  // ♖ WHITE CHESS ROOK
     B: '\u2657',  // ♗ WHITE CHESS BISHOP
     N: '\u2658',  // ♘ WHITE CHESS KNIGHT
     P: '\u2659',  // ♙ WHITE CHESS PAWN
-    k: '\u2654',  // Use white glyph, colored dark by _pieceTexture
-    q: '\u2655',
-    r: '\u2656',
-    b: '\u2657',
-    n: '\u2658',
-    p: '\u2659',
+    k: '\u265A',  // ♚ BLACK CHESS KING (filled/solid)
+    q: '\u265B',  // ♛ BLACK CHESS QUEEN
+    r: '\u265C',  // ♜ BLACK CHESS ROOK
+    b: '\u265D',  // ♝ BLACK CHESS BISHOP
+    n: '\u265E',  // ♞ BLACK CHESS KNIGHT
+    p: '\u265F',  // ♟ BLACK CHESS PAWN
   };
 
   readonly TIMELINE_COLORS: number[] = [
@@ -2932,7 +2932,7 @@ class Board3DManager implements IBoard3D {
     this.scene.add(this.particleSystem);
   }
 
-  /* piece texture factory - BOLD DISTINCT pieces for visibility */
+  /* piece texture factory - MAXIMUM DISTINCTION between white and black */
   private _pieceTexture(symbol: string, isWhite: boolean): Texture {
     const key = symbol + (isWhite ? 'w' : 'b');
     if (this._texCache[key]) return this._texCache[key];
@@ -2942,44 +2942,37 @@ class Board3DManager implements IBoard3D {
     cv.height = s;
     const ctx = cv.getContext('2d')!;
     ctx.clearRect(0, 0, s, s);
-    // Larger font for more prominent pieces
-    ctx.font = `bold ${s * 0.85}px serif`;
+    ctx.font = `bold ${s * 0.82}px serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
     if (isWhite) {
-      // WHITE pieces: bright white with strong dark outline
-      // Draw thick dark outline first (multiple passes for boldness)
-      ctx.strokeStyle = '#1a1a1a';
-      ctx.lineWidth = 8;
-      ctx.lineJoin = 'round';
+      // WHITE pieces: bright cream/ivory with dark outline
+      // Warm glow
+      ctx.shadowColor = 'rgba(255,240,200,0.6)';
+      ctx.shadowBlur = 12;
+      // Dark outline for contrast
+      ctx.strokeStyle = '#1a1510';
+      ctx.lineWidth = 10;
       ctx.strokeText(symbol, s / 2, s / 2);
-      // Second outline pass for extra definition
-      ctx.lineWidth = 5;
+      ctx.lineWidth = 6;
       ctx.strokeText(symbol, s / 2, s / 2);
-      // Fill with bright white
-      ctx.fillStyle = '#ffffff';
+      // Bright cream fill
+      ctx.fillStyle = '#fffef5';
       ctx.fillText(symbol, s / 2, s / 2);
-      // Inner highlight for 3D effect
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-      ctx.lineWidth = 1;
-      ctx.strokeText(symbol, s / 2 - 1, s / 2 - 1);
+      ctx.shadowBlur = 0;
     } else {
-      // BLACK pieces: jet black with bright white outline for maximum contrast
-      // Draw thick white outline first
-      ctx.strokeStyle = '#ffffff';
+      // BLACK pieces: jet black with cyan/teal outline (different from white's dark outline)
+      // Uses filled Unicode symbols (♚♛♜♝♞♟) which are solid
+      // Cyan outline makes black pieces unmistakably different from white
+      ctx.strokeStyle = '#00dddd';
+      ctx.lineWidth = 12;
+      ctx.strokeText(symbol, s / 2, s / 2);
       ctx.lineWidth = 8;
-      ctx.lineJoin = 'round';
       ctx.strokeText(symbol, s / 2, s / 2);
-      // Second outline pass
-      ctx.lineWidth = 5;
-      ctx.strokeText(symbol, s / 2, s / 2);
-      // Fill with jet black
+      // Pure black fill
       ctx.fillStyle = '#0a0a0a';
       ctx.fillText(symbol, s / 2, s / 2);
-      // Subtle inner shadow for depth
-      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-      ctx.lineWidth = 1;
-      ctx.strokeText(symbol, s / 2 + 1, s / 2 + 1);
     }
     const tex = new THREE.CanvasTexture(cv);
     this._texCache[key] = tex;
