@@ -2297,22 +2297,22 @@ class Board3DManager implements IBoard3D {
     type: 'portal' | 'capture';
   }> = [];
 
-  // Use WHITE CHESS symbols (outlined) for BOTH colors to avoid emoji rendering on iOS
-  // Filled symbols like ♟ (U+265F) render as emoji on Safari/iOS
-  // The fill/stroke colors in _pieceTexture() distinguish white vs black pieces
+  // WHITE pieces: use outlined symbols (♔♕♖♗♘♙)
+  // BLACK pieces: use FILLED symbols (♚♛♜♝♞♟) + VS15 to force text rendering
+  // VS15 (U+FE0E) prevents emoji rendering on iOS
   readonly PIECE_CHARS: PieceCharMap = {
-    K: '\u2654',  // ♔ WHITE CHESS KING
+    K: '\u2654',  // ♔ WHITE CHESS KING (outlined)
     Q: '\u2655',  // ♕ WHITE CHESS QUEEN
     R: '\u2656',  // ♖ WHITE CHESS ROOK
     B: '\u2657',  // ♗ WHITE CHESS BISHOP
     N: '\u2658',  // ♘ WHITE CHESS KNIGHT
     P: '\u2659',  // ♙ WHITE CHESS PAWN
-    k: '\u2654',  // Use white glyph, colored dark by _pieceTexture
-    q: '\u2655',
-    r: '\u2656',
-    b: '\u2657',
-    n: '\u2658',
-    p: '\u2659',
+    k: '\u265A\uFE0E',  // ♚ BLACK CHESS KING + VS15 (text presentation)
+    q: '\u265B\uFE0E',  // ♛ BLACK CHESS QUEEN + VS15
+    r: '\u265C\uFE0E',  // ♜ BLACK CHESS ROOK + VS15
+    b: '\u265D\uFE0E',  // ♝ BLACK CHESS BISHOP + VS15
+    n: '\u265E\uFE0E',  // ♞ BLACK CHESS KNIGHT + VS15
+    p: '\u265F\uFE0E',  // ♟ BLACK CHESS PAWN + VS15
   };
 
   readonly TIMELINE_COLORS: number[] = [
@@ -2963,15 +2963,15 @@ class Board3DManager implements IBoard3D {
       ctx.fillText(symbol, s / 2, s / 2);
       ctx.shadowBlur = 0;
     } else {
-      // BLACK pieces: jet black with cyan outline (different from white's dark outline)
-      // Both colors use outlined Unicode symbols to avoid emoji rendering on iOS
-      // Cyan outline makes black pieces unmistakably different from white
+      // BLACK pieces: filled symbols (♚♛♜♝♞♟) with VS15 to force text rendering
+      // These are naturally solid/filled, just need cyan outline
+      // Cyan outline first (underneath)
       ctx.strokeStyle = '#00dddd';
-      ctx.lineWidth = 12;
-      ctx.strokeText(symbol, s / 2, s / 2);
       ctx.lineWidth = 8;
       ctx.strokeText(symbol, s / 2, s / 2);
-      // Pure black fill
+      ctx.lineWidth = 5;
+      ctx.strokeText(symbol, s / 2, s / 2);
+      // Then fill with solid black
       ctx.fillStyle = '#0a0a0a';
       ctx.fillText(symbol, s / 2, s / 2);
     }
