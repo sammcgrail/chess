@@ -265,6 +265,23 @@ export class StockfishManager {
       this.worker.postMessage('ucinewgame');
     }
   }
+
+  /**
+   * Terminate the worker completely (for page unload cleanup)
+   */
+  terminate(): void {
+    if (this.worker) {
+      console.log('[Stockfish] Terminating worker');
+      this.worker.terminate();
+      this.worker = null;
+      this.isReady = false;
+      this.isLoading = false;
+      if (this.pendingResolve) {
+        this.pendingResolve(null);
+        this.pendingResolve = null;
+      }
+    }
+  }
 }
 
 // Export singleton instance
