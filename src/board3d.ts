@@ -2297,21 +2297,22 @@ class Board3DManager implements IBoard3D {
     type: 'portal' | 'capture';
   }> = [];
 
-  // WHITE pieces use outlined Unicode symbols (♔♕♖♗♘♙)
-  // BLACK pieces use FILLED Unicode symbols (♚♛♜♝♞♟) for maximum distinction
+  // Use WHITE CHESS symbols (outlined) for BOTH colors to avoid emoji rendering on iOS
+  // Filled symbols like ♟ (U+265F) render as emoji on Safari/iOS
+  // The fill/stroke colors in _pieceTexture() distinguish white vs black pieces
   readonly PIECE_CHARS: PieceCharMap = {
-    K: '\u2654',  // ♔ WHITE CHESS KING (outlined)
+    K: '\u2654',  // ♔ WHITE CHESS KING
     Q: '\u2655',  // ♕ WHITE CHESS QUEEN
     R: '\u2656',  // ♖ WHITE CHESS ROOK
     B: '\u2657',  // ♗ WHITE CHESS BISHOP
     N: '\u2658',  // ♘ WHITE CHESS KNIGHT
     P: '\u2659',  // ♙ WHITE CHESS PAWN
-    k: '\u265A',  // ♚ BLACK CHESS KING (filled/solid)
-    q: '\u265B',  // ♛ BLACK CHESS QUEEN
-    r: '\u265C',  // ♜ BLACK CHESS ROOK
-    b: '\u265D',  // ♝ BLACK CHESS BISHOP
-    n: '\u265E',  // ♞ BLACK CHESS KNIGHT
-    p: '\u265F',  // ♟ BLACK CHESS PAWN
+    k: '\u2654',  // Use white glyph, colored dark by _pieceTexture
+    q: '\u2655',
+    r: '\u2656',
+    b: '\u2657',
+    n: '\u2658',
+    p: '\u2659',
   };
 
   readonly TIMELINE_COLORS: number[] = [
@@ -2962,8 +2963,8 @@ class Board3DManager implements IBoard3D {
       ctx.fillText(symbol, s / 2, s / 2);
       ctx.shadowBlur = 0;
     } else {
-      // BLACK pieces: jet black with cyan/teal outline (different from white's dark outline)
-      // Uses filled Unicode symbols (♚♛♜♝♞♟) which are solid
+      // BLACK pieces: jet black with cyan outline (different from white's dark outline)
+      // Both colors use outlined Unicode symbols to avoid emoji rendering on iOS
       // Cyan outline makes black pieces unmistakably different from white
       ctx.strokeStyle = '#00dddd';
       ctx.lineWidth = 12;
