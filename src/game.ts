@@ -143,8 +143,9 @@ class GameManager {
       btn.textContent = '⏹ Stop';
     }
 
-    // 6D Chess showcase demo - demonstrates time travel and cross-timeline play
-    // This creates multiple timelines and shows 5D chess mechanics
+    // The Immortal Game - Anderssen vs Kieseritzky, London 1851
+    // One of the most famous chess games ever played, showcasing brilliant sacrifices
+    // Anderssen sacrifices both rooks, his bishop, and his queen to deliver checkmate!
     const demoMoves: Array<{
       type: 'move' | 'timetravel' | 'crossTimeline';
       from?: string;
@@ -153,30 +154,59 @@ class GameManager {
       targetTurn?: number;
       targetTimeline?: number;
     }> = [
-      // Opening moves to set up the position
       { type: 'move', from: 'e2', to: 'e4' },     // 1. e4
       { type: 'move', from: 'e7', to: 'e5' },     // 1... e5
-      { type: 'move', from: 'g1', to: 'f3' },     // 2. Nf3
-      { type: 'move', from: 'b8', to: 'c6' },     // 2... Nc6
+      { type: 'move', from: 'f2', to: 'f4' },     // 2. f4 (King's Gambit)
+      { type: 'move', from: 'e5', to: 'f4' },     // 2... exf4
       { type: 'move', from: 'f1', to: 'c4' },     // 3. Bc4
-      { type: 'move', from: 'f8', to: 'c5' },     // 3... Bc5
-      { type: 'move', from: 'd1', to: 'h5' },     // 4. Qh5 (threatening mate)
-      { type: 'move', from: 'g8', to: 'f6' },     // 4... Nf6 (blocks)
-      { type: 'move', from: 'h5', to: 'f7' },     // 5. Qxf7+ (check - takes pawn)
-      // After a few moves, CPU takes over with Stockfish for 5D play
+      { type: 'move', from: 'd8', to: 'h4' },     // 3... Qh4+ (check!)
+      { type: 'move', from: 'e1', to: 'f1' },     // 4. Kf1
+      { type: 'move', from: 'b7', to: 'b5' },     // 4... b5?! (Bryan Countergambit)
+      { type: 'move', from: 'c4', to: 'b5' },     // 5. Bxb5
+      { type: 'move', from: 'g8', to: 'f6' },     // 5... Nf6
+      { type: 'move', from: 'g1', to: 'f3' },     // 6. Nf3
+      { type: 'move', from: 'h4', to: 'h6' },     // 6... Qh6
+      { type: 'move', from: 'd2', to: 'd3' },     // 7. d3
+      { type: 'move', from: 'f6', to: 'h5' },     // 7... Nh5
+      { type: 'move', from: 'f3', to: 'h4' },     // 8. Nh4
+      { type: 'move', from: 'h6', to: 'g5' },     // 8... Qg5
+      { type: 'move', from: 'h4', to: 'f5' },     // 9. Nf5
+      { type: 'move', from: 'c7', to: 'c6' },     // 9... c6
+      { type: 'move', from: 'g2', to: 'g4' },     // 10. g4!
+      { type: 'move', from: 'h5', to: 'f6' },     // 10... Nf6
+      { type: 'move', from: 'h1', to: 'g1' },     // 11. Rg1!
+      { type: 'move', from: 'c6', to: 'b5' },     // 11... cxb5
+      { type: 'move', from: 'h2', to: 'h4' },     // 12. h4!
+      { type: 'move', from: 'g5', to: 'g6' },     // 12... Qg6
+      { type: 'move', from: 'h4', to: 'h5' },     // 13. h5
+      { type: 'move', from: 'g6', to: 'g5' },     // 13... Qg5
+      { type: 'move', from: 'd1', to: 'f3' },     // 14. Qf3
+      { type: 'move', from: 'f6', to: 'g8' },     // 14... Ng8
+      { type: 'move', from: 'c1', to: 'f4' },     // 15. Bxf4
+      { type: 'move', from: 'g5', to: 'f6' },     // 15... Qf6
+      { type: 'move', from: 'b1', to: 'c3' },     // 16. Nc3
+      { type: 'move', from: 'f8', to: 'c5' },     // 16... Bc5
+      { type: 'move', from: 'c3', to: 'd5' },     // 17. Nd5!
+      { type: 'move', from: 'f6', to: 'b2' },     // 17... Qxb2 (takes rook's pawn)
+      { type: 'move', from: 'f4', to: 'd6' },     // 18. Bd6!! (sacrifices rook a1)
+      { type: 'move', from: 'c5', to: 'g1' },     // 18... Bxg1 (takes rook!)
+      { type: 'move', from: 'e4', to: 'e5' },     // 19. e5!! (another sacrifice)
+      { type: 'move', from: 'b2', to: 'a1' },     // 19... Qxa1+ (takes other rook!)
+      { type: 'move', from: 'f1', to: 'e2' },     // 20. Ke2
+      { type: 'move', from: 'b8', to: 'a6' },     // 20... Na6
+      { type: 'move', from: 'f5', to: 'g7' },     // 21. Nxg7+
+      { type: 'move', from: 'e8', to: 'd8' },     // 21... Kd8
+      { type: 'move', from: 'f3', to: 'f6' },     // 22. Qf6+!! (queen sacrifice!)
+      { type: 'move', from: 'g8', to: 'f6' },     // 22... Nxf6
+      { type: 'move', from: 'd6', to: 'e7' },     // 23. Be7# CHECKMATE!
     ];
 
     let moveIndex = 0;
     const playNextMove = () => {
       if (!this._examplePlaying || moveIndex >= demoMoves.length) {
-        // After demo moves, start CPU with Stockfish for interesting 5D play
-        if (this._examplePlaying) {
-          // Enable Stockfish and high 5D aggression for the demo
-          this.cpuUseStockfish = true;
-          this.setMaxTimelines(6);  // Allow up to 6 timelines
-          this._updateCpuUI();
-          this.cpuStart();
-        }
+        // The Immortal Game ends in checkmate - demo complete!
+        // Just stop playing (no CPU needed, game is over)
+        this._stopExamplePlay();
         return;
       }
 
