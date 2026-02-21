@@ -3358,10 +3358,11 @@ timelines - list timelines`,
     return bestTlId;
   }
 
-  // CPU preview state for showing moves before executing
+  // CPU pending move state
   private cpuPendingMove: {
     tlId: number;
     move: ChessMove;
+    isWhite: boolean;
     isTimeTravel: boolean;
     isCrossTimeline: boolean;
     timeTravelData?: { sourceSquare: Square; targetTurnIndex: number; piece: Piece; capturedPiece: Piece | null | undefined };
@@ -3410,18 +3411,11 @@ timelines - list timelines`,
     if (Object.keys(this.timelines).length < this.maxTimelines) {
       const timeTravelMove = this._cpuCheckTimeTravel(tlId);
       if (timeTravelMove) {
-        // Clear ALL previews first to avoid out-of-sync indicators
-        Board3D.clearAllCpuPreviews();
-        // Show preview for time travel move
-        const col = Board3D.getTimeline(tlId);
-        if (col) {
-          col.showCpuMovePreview(timeTravelMove.sourceSquare, timeTravelMove.sourceSquare, isWhite, true);
-        }
-
-        // Store pending move and execute after tiny pause
+        // Store pending move and execute immediately (indicator shown after)
         this.cpuPendingMove = {
           tlId,
           move: { from: timeTravelMove.sourceSquare, to: timeTravelMove.sourceSquare } as ChessMove,
+          isWhite,
           isTimeTravel: true,
           isCrossTimeline: false,
           timeTravelData: {
@@ -3432,8 +3426,8 @@ timelines - list timelines`,
           },
         };
 
-        // Execute after preview delay (100ms for time travel - reduced to minimize flicker)
-        window.setTimeout(() => this._cpuExecutePendingMove(), 100);
+        // Execute immediately - indicator shown AFTER move
+        this._cpuExecutePendingMove();
         return true;
       }
     }
@@ -3441,18 +3435,11 @@ timelines - list timelines`,
     // Check for cross-timeline opportunity (can always happen if multiple timelines exist)
     const crossTimelineMove = this._cpuCheckCrossTimeline(tlId);
     if (crossTimelineMove) {
-      // Clear ALL previews first to avoid out-of-sync indicators
-      Board3D.clearAllCpuPreviews();
-      // Show preview for cross-timeline move
-      const col = Board3D.getTimeline(tlId);
-      if (col) {
-        col.showCpuMovePreview(crossTimelineMove.square, crossTimelineMove.square, isWhite, false);
-      }
-
-      // Store pending move and execute after tiny pause
+      // Store pending move and execute immediately (indicator shown after)
       this.cpuPendingMove = {
         tlId,
         move: { from: crossTimelineMove.square, to: crossTimelineMove.square } as ChessMove,
+        isWhite,
         isTimeTravel: false,
         isCrossTimeline: true,
         crossTimelineData: {
@@ -3462,8 +3449,8 @@ timelines - list timelines`,
         },
       };
 
-      // Execute after preview delay (100ms for cross-timeline - reduced to minimize flicker)
-      window.setTimeout(() => this._cpuExecutePendingMove(), 100);
+      // Execute immediately - indicator shown AFTER move
+      this._cpuExecutePendingMove();
       return true;
     }
 
@@ -3474,18 +3461,11 @@ timelines - list timelines`,
         return;
       }
 
-      // Clear ALL previews first to avoid out-of-sync indicators
-      Board3D.clearAllCpuPreviews();
-      // Show preview before executing
-      const col = Board3D.getTimeline(tlId);
-      if (col) {
-        col.showCpuMovePreview(move.from, move.to, isWhite, false);
-      }
+      // Store pending move and execute immediately (indicator shown after)
+      this.cpuPendingMove = { tlId, move, isWhite, isTimeTravel: false, isCrossTimeline: false };
 
-      // Store pending move and execute after tiny pause (100ms for normal moves - reduced to minimize flicker)
-      this.cpuPendingMove = { tlId, move, isTimeTravel: false, isCrossTimeline: false };
-
-      window.setTimeout(() => this._cpuExecutePendingMove(), 100);
+      // Execute immediately - indicator shown AFTER move
+      this._cpuExecutePendingMove();
     });
 
     return true;
@@ -3537,18 +3517,15 @@ timelines - list timelines`,
     return move;
   }
 
-  /** Execute the pending CPU move after preview delay */
+  /** Execute the pending CPU move and show indicator after */
   private _cpuExecutePendingMove(): void {
     if (!this.cpuPendingMove) return;
 
-    const { tlId, move, isTimeTravel, isCrossTimeline, timeTravelData, crossTimelineData } = this.cpuPendingMove;
+    const { tlId, move, isWhite, isTimeTravel, isCrossTimeline, timeTravelData, crossTimelineData } = this.cpuPendingMove;
     this.cpuPendingMove = null;
 
-    // Clear the preview
-    const col = Board3D.getTimeline(tlId);
-    if (col) {
-      col.clearCpuMovePreview();
-    }
+    // Clear any existing indicators first
+    Board3D.clearAllCpuPreviews();
 
     if (isTimeTravel && timeTravelData) {
       // Execute time travel move
@@ -3560,6 +3537,13 @@ timelines - list timelines`,
         timeTravelData.piece,
         timeTravelData.capturedPiece
       );
+      // Show indicator on source square after move completes
+      const col = Board3D.getTimeline(tlId);
+      if (col) {
+        col.showCpuMovePreview(timeTravelData.sourceSquare, timeTravelData.sourceSquare, isWhite, true);
+        // Fade out after 800ms
+        window.setTimeout(() => col.clearCpuMovePreview(), 800);
+      }
     } else if (isCrossTimeline && crossTimelineData) {
       // Execute cross-timeline move
       console.log('[CPU] Crossing timelines!', {
@@ -3573,9 +3557,23 @@ timelines - list timelines`,
         crossTimelineData.square,
         crossTimelineData.piece
       );
+      // Show indicator on source square after move completes
+      const col = Board3D.getTimeline(tlId);
+      if (col) {
+        col.showCpuMovePreview(crossTimelineData.square, crossTimelineData.square, isWhite, false);
+        // Fade out after 800ms
+        window.setTimeout(() => col.clearCpuMovePreview(), 800);
+      }
     } else {
       // Execute normal move (auto-queen for CPU promotions)
       this.makeMove(tlId, move, move.promotion ? 'q' : undefined);
+      // Show indicator from->to after move completes
+      const col = Board3D.getTimeline(tlId);
+      if (col) {
+        col.showCpuMovePreview(move.from, move.to, isWhite, false);
+        // Fade out after 800ms
+        window.setTimeout(() => col.clearCpuMovePreview(), 800);
+      }
     }
   }
 
