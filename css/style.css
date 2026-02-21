@@ -858,12 +858,15 @@ body::-webkit-scrollbar {
     color: #88ddff;
 }
 
-/* 2D mode toggle - styled like camera button */
+/* 2D mode toggle - styled exactly like camera button */
 #2d-mode-toggle {
     width: 32px;
     min-width: 32px;
-    height: 32px;
-    padding: 0;
+    height: auto;
+    padding: 0.4rem;
+    margin-top: 0.3rem;
+    font-size: 1rem;
+    line-height: 1;
     background: rgba(60, 60, 100, 0.4);
     border: 1px solid rgba(80, 80, 160, 0.3);
     border-radius: 6px;
