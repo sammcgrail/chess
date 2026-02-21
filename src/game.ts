@@ -2709,7 +2709,9 @@ timelines - list timelines`,
       const items = listEl.querySelectorAll('.tl-item:not(.empty)');
       items.forEach((item) => {
         const tlId = parseInt((item as HTMLElement).dataset.tlId || '0');
-        item.addEventListener('click', () => {
+        item.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent any bubbling issues
+          console.log('[TIMELINE_CLICK] Clicked timeline', tlId, 'current active:', this.activeTimelineId);
           this.setActiveTimeline(tlId);
         });
       });
@@ -3084,9 +3086,9 @@ timelines - list timelines`,
   private cpuWhitePortalBias: Record<string, number> = { q: 0.5, r: 0.4, b: 0.35, n: 0.3 };
   private cpuBlackPortalBias: Record<string, number> = { q: 0.5, r: 0.4, b: 0.35, n: 0.3 };
 
-  // 5D Chess aggression settings
-  private cpuCrossTimelineChance = 0.6;  // Base chance for cross-timeline moves (0-1)
-  private cpuTimeTravelChance = 0.4;     // Base chance for time travel moves (0-1)
+  // 5D Chess aggression settings (increased for more dynamic multi-board play)
+  private cpuCrossTimelineChance = 0.75;  // Base chance for cross-timeline moves (0-1)
+  private cpuTimeTravelChance = 0.5;      // Base chance for time travel moves (0-1)
 
   // Stockfish settings
   private cpuUseStockfish = true;  // Use Stockfish when available
@@ -3329,6 +3331,21 @@ timelines - list timelines`,
         score += Math.abs(advantageMultiplier) * 2;
       }
 
+      // Priority 5: Balance play across boards (prefer less-played timelines)
+      // This prevents one board from getting 168 moves while another has 8
+      const moveCount = tl.moveHistory.length;
+      const avgMoves = playable.reduce((sum, id) => {
+        const t = this.timelines[id];
+        return sum + (t ? t.moveHistory.length : 0);
+      }, 0) / playable.length;
+      if (moveCount < avgMoves * 0.5) {
+        // This board has less than half the average moves - prioritize it
+        score += 20;
+      } else if (moveCount < avgMoves * 0.8) {
+        // Moderately under-played
+        score += 10;
+      }
+
       // Small random factor to avoid being too predictable
       score += Math.random() * 5;
 
@@ -3393,6 +3410,8 @@ timelines - list timelines`,
     if (Object.keys(this.timelines).length < this.maxTimelines) {
       const timeTravelMove = this._cpuCheckTimeTravel(tlId);
       if (timeTravelMove) {
+        // Clear ALL previews first to avoid out-of-sync indicators
+        Board3D.clearAllCpuPreviews();
         // Show preview for time travel move
         const col = Board3D.getTimeline(tlId);
         if (col) {
@@ -3413,8 +3432,8 @@ timelines - list timelines`,
           },
         };
 
-        // Execute after preview delay (300ms for time travel)
-        window.setTimeout(() => this._cpuExecutePendingMove(), 300);
+        // Execute after preview delay (100ms for time travel - reduced to minimize flicker)
+        window.setTimeout(() => this._cpuExecutePendingMove(), 100);
         return true;
       }
     }
@@ -3422,6 +3441,8 @@ timelines - list timelines`,
     // Check for cross-timeline opportunity (can always happen if multiple timelines exist)
     const crossTimelineMove = this._cpuCheckCrossTimeline(tlId);
     if (crossTimelineMove) {
+      // Clear ALL previews first to avoid out-of-sync indicators
+      Board3D.clearAllCpuPreviews();
       // Show preview for cross-timeline move
       const col = Board3D.getTimeline(tlId);
       if (col) {
@@ -3441,8 +3462,8 @@ timelines - list timelines`,
         },
       };
 
-      // Execute after preview delay (250ms for cross-timeline)
-      window.setTimeout(() => this._cpuExecutePendingMove(), 250);
+      // Execute after preview delay (100ms for cross-timeline - reduced to minimize flicker)
+      window.setTimeout(() => this._cpuExecutePendingMove(), 100);
       return true;
     }
 
@@ -3453,16 +3474,18 @@ timelines - list timelines`,
         return;
       }
 
+      // Clear ALL previews first to avoid out-of-sync indicators
+      Board3D.clearAllCpuPreviews();
       // Show preview before executing
       const col = Board3D.getTimeline(tlId);
       if (col) {
         col.showCpuMovePreview(move.from, move.to, isWhite, false);
       }
 
-      // Store pending move and execute after tiny pause (200ms for normal moves)
+      // Store pending move and execute after tiny pause (100ms for normal moves - reduced to minimize flicker)
       this.cpuPendingMove = { tlId, move, isTimeTravel: false, isCrossTimeline: false };
 
-      window.setTimeout(() => this._cpuExecutePendingMove(), 200);
+      window.setTimeout(() => this._cpuExecutePendingMove(), 100);
     });
 
     return true;
@@ -3821,8 +3844,9 @@ timelines - list timelines`,
       }
     }
     if (dumbToggle) {
-      dumbToggle.classList.toggle('active', !this.cpuUseStockfish);
-      dumbToggle.title = this.cpuUseStockfish ? 'Using Stockfish (click for random moves)' : 'Using random moves (click for Stockfish)';
+      dumbToggle.textContent = this.cpuUseStockfish ? 'ON' : 'OFF';
+      dumbToggle.classList.toggle('active', this.cpuUseStockfish);
+      dumbToggle.title = this.cpuUseStockfish ? 'Stockfish enabled (click to disable)' : 'Stockfish disabled (click to enable)';
     }
 
     // Update 2D mode button
