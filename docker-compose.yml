@@ -1,0 +1,9 @@
+services:
+  chess:
+    build: .
+    container_name: chess
+    restart: unless-stopped
+    ports:
+      - "8779:8779"
+    mem_limit: 32m
+    cpus: 0.1
